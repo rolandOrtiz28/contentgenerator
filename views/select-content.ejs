@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Select Content Type</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <h1>Select Content Type</h1>
+    <form action="/branding" method="POST">
+        <label>
+            <input type="radio" name="contentType" value="poster" required> Poster
+        </label><br>
+        <label>
+            <input type="radio" name="contentType" value="reel"> Reel
+        </label><br>
+        <label>
+            <input type="radio" name="contentType" value="story"> Story
+        </label><br>
+        <label>
+            <input type="radio" name="contentType" value="blog"> Blog
+        </label><br>
+        <button type="submit">Next</button>
+    </form>
+</body>
+</html>
