@@ -3,25 +3,214 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Select Content Type</title>
-    <link rel="stylesheet" href="/css/style.css">
+    <title>Select Content Type | Eddie's AI</title>
+    <link rel="stylesheet" href="styles.css">
+    <script defer src="script.js"></script>
+
+    <style>
+        /* Global Reset */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Poppins', sans-serif;
+}
+
+/* Color Palette */
+:root {
+    --primary-color: #101010;
+    --accent-color: #ff007f;
+    --text-light: #ffffff;
+    --bg-light: #f5f5f5;
+}
+
+/* Body */
+body {
+    background: var(--bg-light);
+    color: var(--primary-color);
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+}
+
+/* Navbar */
+.navbar {
+    position: fixed;
+    width: 100%;
+    top: 0;
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(10px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 15px 30px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.navbar a{
+    text-decoration: none;
+    color: #101010;
+}
+
+.navbar a .logo {
+    font-size: 22px;
+    font-weight: bold;
+}
+
+.navbar a .logo span {
+    color: var(--accent-color);
+}
+
+/* Selection Container */
+.selection-container {
+    margin-top: 80px;
+    text-align: center;
+    padding: 20px;
+}
+
+.selection-container h1 {
+    font-size: 32px;
+    font-weight: bold;
+}
+
+.selection-container p {
+    font-size: 16px;
+    color: var(--primary-color);
+    margin-bottom: 20px;
+}
+
+/* Content Options */
+.content-options {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    margin-bottom: 20px;
+}
+
+.option-card {
+    background: rgba(255, 255, 255, 0.9);
+    border-radius: 15px;
+    padding: 20px;
+    text-align: center;
+    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1);
+    transition: transform 0.3s;
+    max-width: 200px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    border: 2px solid transparent;
+}
+
+.option-card:hover {
+    transform: scale(1.05);
+    border-color: var(--accent-color);
+}
+
+.option-card input {
+    display: none;
+}
+
+.option-card img {
+    width: 50px;
+}
+
+.option-card span {
+    font-size: 18px;
+    font-weight: 600;
+}
+
+/* Active Selection */
+.option-card input:checked + .icon-container {
+    border: 3px solid var(--accent-color);
+    border-radius: 50%;
+    padding: 15px;
+}
+
+/* CTA Button */
+.cta-btn {
+    background: var(--accent-color);
+    color: var(--text-light);
+    border: none;
+    padding: 12px 24px;
+    font-size: 16px;
+    border-radius: 50px;
+    cursor: pointer;
+    transition: 0.3s ease-in-out;
+}
+
+.cta-btn:hover {
+    background: #e6006f;
+    transform: scale(1.05);
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .content-options {
+        flex-direction: column;
+        gap: 15px;
+    }
+}
+
+    </style>
 </head>
 <body>
-    <h1>Select Content Type</h1>
-    <form action="/branding" method="POST">
-        <label>
-            <input type="radio" name="contentType" value="poster" required> Poster
-        </label><br>
-        <label>
-            <input type="radio" name="contentType" value="reel"> Reel
-        </label><br>
-        <label>
-            <input type="radio" name="contentType" value="story"> Story
-        </label><br>
-        <label>
-            <input type="radio" name="contentType" value="blog"> Blog
-        </label><br>
-        <button type="submit">Next</button>
-    </form>
+
+    <!-- Navigation Bar -->
+    <nav class="navbar">
+        <a href="/"><div class="logo">Eddie's <span>Content</span></div></a>
+    </nav>
+
+    <!-- Selection Section -->
+    <section class="selection-container">
+        <h1>Select the Type of Content</h1>
+        <p>Choose the content format you want Eddie AI to generate.</p>
+
+        <form action="/select-branding" method="POST">
+            <div class="content-options">
+                <label class="option-card">
+                    <input type="radio" name="contentType" value="social" required>
+                    <div class="icon-container">
+                        <img src="/images/SM.svg" alt="Social Media">
+                    </div>
+                    <span>Social Media Post</span>
+                </label>
+
+                <label class="option-card">
+                    <input type="radio" name="contentType" value="article">
+                    <div class="icon-container">
+                        <img src="/images/Blog.svg" alt="SEO Blog">
+                    </div>
+                    <span>SEO Blog / Article</span>
+                </label>
+            </div>
+
+            <button type="submit" class="cta-btn">Next</button>
+        </form>
+    </section>
+
+
+    <script>
+document.addEventListener("DOMContentLoaded", function () {
+    const options = document.querySelectorAll(".option-card");
+
+    options.forEach(option => {
+        option.addEventListener("click", function () {
+            // Uncheck all other options
+            options.forEach(opt => opt.classList.remove("selected"));
+            
+            // Mark this as selected
+            this.classList.add("selected");
+            this.querySelector("input").checked = true;
+        });
+    });
+});
+
+
+    </script>
 </body>
 </html>

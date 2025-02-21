@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Select a Topic</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <h1>Select a Topic</h1>
+
+    <form action="/generate-content-social" method="POST">
+        <input type="hidden" name="companyName" value="<%= companyName %>">
+        <input type="hidden" name="description" value="<%= description %>">
+        <input type="hidden" name="targetAudience" value="<%= targetAudience %>">
+        <input type="hidden" name="services" value="<%= services %>">
+        <input type="hidden" name="socialMediaType" value="<%= socialMediaType %>">
+        <input type="hidden" name="colorCombination" value="<%= colorCombination %>">
+        <input type="hidden" name="brandTone" value="<%= brandTone %>">
+        <input type="hidden" name="purpose" value="<%= purpose %>">
+        <input type="hidden" name="theme" value="<%= theme %>">
+        <input type="hidden" name="adDetails" value="<%= adDetails %>">
+
+        <label>Choose a Topic:</label><br>
+        <% suggestedTopics.forEach(function(topic, index) { %>
+            <input type="radio" name="topic" value="<%= topic %>" required> <%= topic %> <br>
+        <% }) %>
+
+        <button type="submit">Continue</button>
+    </form>
+</body>
+</html>

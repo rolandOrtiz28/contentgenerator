@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Branding Details for Article</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <h1>Branding Details for Articles</h1>
+
+    <form action="/generate-content-article" method="POST">
+        <label>Company Name:</label>
+        <input type="text" name="companyName" placeholder="Your Company Name" required><br>
+
+        <label>Target Audience:</label>
+        <input type="text" name="audience" placeholder="Who is this for?" required><br>
+
+        <label>Brand Tone:</label>
+        <select name="brandTone">
+            <option value="professional">Professional</option>
+            <option value="casual">Casual</option>
+            <option value="informative">Informative</option>
+        </select><br>
+
+        <label>SEO Keyword:</label>
+        <input type="text" name="keyword" placeholder="Main SEO Keyword" required><br>
+
+        <button type="submit">Generate Article</button>
+    </form>
+</body>
+</html>

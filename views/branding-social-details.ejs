@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Branding Details</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <script>
+        function toggleAdInput() {
+            let theme = document.querySelector('input[name="theme"]:checked').value;
+            let adInput = document.getElementById("adDetails");
+            adInput.style.display = theme === "Advertising" ? "block" : "none";
+        }
+    </script>
+</head>
+<body>
+    <h1>Branding Details for Social Media</h1>
+
+    <form action="/generate-content-social" method="POST">
+        <label>Company Name:</label>
+        <input type="text" name="companyName" value="<%= companyName %>" required><br>
+
+        <label>Business Description:</label>
+<textarea name="description"><%= description || "Describe Your Company" %></textarea><br>
+
+<label>Services Provided:</label>
+<textarea name="services"><%= services || "What are the services you offer?" %></textarea><br>
+
+        <label>What type of content do you want to generate?</label><br>
+        <input type="radio" name="socialMediaType" value="post" required> Social Media Post <br>
+        <input type="radio" name="socialMediaType" value="story"> Story <br>
+        <input type="radio" name="socialMediaType" value="reel"> Reel <br><br>
+
+        <label>Color Combination:</label>
+        <input type="text" name="colorCombination" placeholder="e.g., Blue & White" required><br>
+
+        <label>Brand Tone:</label>
+        <select name="brandTone">
+            <option value="professional">Professional</option>
+            <option value="casual">Casual</option>
+            <option value="funny">Funny</option>
+        </select><br>
+
+        <label>Purpose:</label>
+        <input type="text" name="purpose" placeholder="e.g., Promote a new product" required><br>
+
+        <!-- ✅ New: Topic Selection -->
+        <label>Topic (Leave blank for AI suggestions):</label>
+        <input type="text" name="topic" placeholder="e.g., Social Media Growth"><br>
+
+        <!-- ✅ New: Theme Selection -->
+        <label>Choose a Theme:</label><br>
+        <input type="radio" name="theme" value="Educational" onclick="toggleAdInput()"> Educational <br>
+        <input type="radio" name="theme" value="Tips" onclick="toggleAdInput()"> Tips <br>
+        <input type="radio" name="theme" value="Advertising" onclick="toggleAdInput()"> Advertising <br><br>
+
+        <!-- ✅ New: Advertising Details (Hidden by Default) -->
+        <div id="adDetails" style="display: none;">
+            <label>Advertising Details (If applicable):</label>
+            <input type="text" name="adDetails" placeholder="Describe the promotion"><br>
+        </div>
+
+        <button type="submit">Generate Social Media Content</button>
+    </form>
+</body>
+</html>

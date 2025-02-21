@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Branding Details | Eddie AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="script.js"></script>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+    
+    <div class="bg-white shadow-lg rounded-xl p-8 w-full max-w-lg">
+        <!-- Title -->
+        <h1 class="text-3xl font-bold text-primary text-center mb-4">Business Details</h1>
+        <p class="text-gray-600 text-center mb-6">Tell us about your business to tailor your branding.</p>
+
+        <!-- Form -->
+        <form action="/branding-social-details" method="POST" class="space-y-6">
+            <!-- Website Selection -->
+            <label class="block text-lg font-semibold">Do you have a company website?</label>
+            <div class="flex gap-4 justify-center">
+                <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="hasWebsite" value="yes" class="hidden peer" onclick="toggleWebsiteInput(true)">
+                    <span class="w-5 h-5 inline-block border-2 border-gray-400 rounded-full peer-checked:border-accent peer-checked:bg-accent"></span>
+                    Yes
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="hasWebsite" value="no" class="hidden peer" onclick="toggleWebsiteInput(false)">
+                    <span class="w-5 h-5 inline-block border-2 border-gray-400 rounded-full peer-checked:border-accent peer-checked:bg-accent"></span>
+                    No
+                </label>
+            </div>
+
+            <!-- Website Input (Hidden by Default) -->
+            <div id="websiteInput" class="hidden">
+                <label class="block text-lg font-semibold">Company Website:</label>
+                <input type="url" name="companyWebsite" placeholder="Enter your website URL" class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent transition">
+            </div>
+
+            <!-- Manual Input Fields (Hidden by Default) -->
+            <div id="manualInput" class="hidden space-y-4">
+                <label class="block text-lg font-semibold">Company Name:</label>
+                <input type="text" name="companyName" placeholder="Enter your company name" class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent transition">
+
+                <label class="block text-lg font-semibold">Target Audience:</label>
+                <input type="text" name="targetAudience" placeholder="Describe your target audience" class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent transition">
+
+                <label class="block text-lg font-semibold">Services Provided:</label>
+                <textarea name="services" placeholder="Describe the services you offer" class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent transition"></textarea>
+            </div>
+
+            <!-- Submit Button -->
+            <button type="submit" class="w-full bg-accent text-white p-3 rounded-lg text-lg font-semibold hover:bg-accent-hover transition">
+                Next
+            </button>
+        </form>
+    </div>
+
+
+    <script>
+        function toggleWebsiteInput(hasWebsite) {
+    const websiteInput = document.getElementById("websiteInput");
+    const manualInput = document.getElementById("manualInput");
+
+    if (hasWebsite) {
+        websiteInput.classList.remove("hidden");
+        manualInput.classList.add("hidden");
+    } else {
+        websiteInput.classList.add("hidden");
+        manualInput.classList.remove("hidden");
+    }
+}
+
+    </script>
+</body>
+</html>
