@@ -1,0 +1,96 @@
+/* Global Styles */
+body {
+    font-family: "Montserrat", sans-serif;
+    background-color: #ffffff; /* White background */
+    color: #101010; /* Dark primary text */
+    margin: 0;
+    padding: 0;
+}
+
+/* Container */
+.container {
+    max-width: 900px;
+    margin: 50px auto;
+    padding: 20px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+    background: #ffffff;
+    border-radius: 12px;
+    border: 2px solid #101010;
+}
+
+/* Headings */
+h1 {
+    font-size: 2.5rem;
+    text-align: center;
+    font-weight: 700;
+    margin-bottom: 20px;
+    color: #101010;
+}
+
+/* Labels */
+label {
+    font-weight: 600;
+    display: block;
+    margin: 10px 0 5px;
+}
+
+/* Input Fields */
+input, textarea, select {
+    width: 50%;
+    padding: 12px;
+    border: 2px solid #101010;
+    border-radius: 8px;
+    font-size: 16px;
+    background: #f9f9f9;
+    transition: 0.3s ease-in-out;
+}
+
+input:focus, textarea:focus, select:focus {
+    border-color: #101010;
+    outline: none;
+    background: #ffffff;
+}
+
+/* Radio Buttons */
+.radio-group {
+    display: flex;
+    gap: 15px;
+    margin: 10px 0;
+}
+
+.radio-group label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+}
+
+.radio-group input {
+    width: auto;
+    accent-color: #ff007f;
+}
+
+/* Button */
+button {
+    background: #ff007f;
+    color: white;
+    font-size: 18px;
+    font-weight: bold;
+    padding: 12px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease-in-out;
+    display: block;
+    width: 50%;
+    margin-top: 20px;
+}
+
+button:hover {
+    background: #cc0066;
+}
+
+/* Hidden Elements */
+.hidden {
+    display: none;
+}

@@ -4,162 +4,22 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Eddie's Content - AI Generator</title>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="/css/style.css">
     <script defer src="script.js"></script>
-
-    <style>
-
-        /* Global Reset */
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-    font-family: 'Poppins', sans-serif;
-}
-
-/* Color Palette */
-:root {
-    --primary-color: #101010;
-    --accent-color: #ff007f;
-    --text-light: #ffffff;
-    --bg-light: #f5f5f5;
-}
-
-/* Body */
-body {
-    background: var(--bg-light);
-    color: var(--primary-color);
-    text-align: center;
-}
-
-/* Navbar */
-.navbar {
-    position: fixed;
-    width: 100%;
-    top: 0;
-    background: rgba(255, 255, 255, 0.8);
-    backdrop-filter: blur(10px);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 15px 30px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-}
-
-.navbar .logo {
-    font-size: 22px;
-    font-weight: bold;
-}
-
-.navbar .logo span {
-    color: var(--accent-color);
-}
-
-.cta-btn {
-    background: var(--accent-color);
-    color: var(--text-light);
-    border: none;
-    padding: 12px 24px;
-    font-size: 16px;
-    border-radius: 50px;
-    cursor: pointer;
-    transition: 0.3s ease-in-out;
-}
-.cta-btn a{
-    color: white;
-    text-decoration: none;
-}
-
-.cta-btn:hover {
-    background: #e6006f;
-    transform: scale(1.05);
-}
-
-/* Hero Section */
-.hero {
-    min-height: 80vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 50px 20px;
-}
-
-.hero h1 {
-    font-size: 50px;
-    font-weight: bold;
-}
-
-.hero h1 span {
-    color: var(--accent-color);
-}
-
-.hero p {
-    font-size: 18px;
-    max-width: 600px;
-    margin: 10px auto 20px;
-}
-
-/* Features Section */
-.features {
-    display: flex;
-    justify-content: center;
-    gap: 20px;
-    padding: 50px;
-}
-
-.feature-card {
-    background: rgba(255, 255, 255, 0.9);
-    border-radius: 15px;
-    padding: 20px;
-    text-align: start;
-    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1);
-    transition: transform 0.3s;
-    max-width: 350px;
-}
-
-.feature-card img {
-    width: 60px;
-}
-
-.feature-card h3 {
-    margin: 15px 0;
-    font-size: 20px;
-}
-
-.feature-card:hover {
-    transform: scale(1.05);
-    border: 1px solid #ff007f;
-}
-
-/* CTA Section */
-.cta-section {
-    background: var(--primary-color);
-    color: var(--text-light);
-    padding: 50px;
-    text-align: center;
-}
-
-.cta-section h2 {
-    font-size: 28px;
-    margin-bottom: 20px;
-}
-
-    </style>
 </head>
 <body>
 
     <!-- Navigation Bar -->
     <nav class="navbar">
         <div class="logo">Eddie's <span>Content</span></div>
-        <button class="cta-btn">Get Started</button>
+        <button class="cta-btn"><a href="/select-content">Get Started</a></button>
     </nav>
 
     <!-- Hero Section -->
     <section class="hero">
         <h1>Content <span>Reimagined</span></h1>
         <p>Create content that captivates, engages, and inspires – powered by AI.</p>
-        <button class="cta-btn"><a href="/select-content">Start Creating</a></button>
+        <button class="cta-btn"><a href="/select-content">Start Crafting!</a></button>
     </section>
 
     <!-- Features Section -->
@@ -184,34 +44,8 @@ body {
     <!-- Call to Action -->
     <section class="cta-section">
         <h2>Take your content to the next level</h2>
-        <button class="cta-btn">Get Started Now</button>
+        <button class="cta-btn"><a href="/select-content">Get Started Now</a></button>
     </section>
 
-
-    <script>
-
-document.addEventListener("DOMContentLoaded", function () {
-    const ctaButtons = document.querySelectorAll(".cta-btn");
-
-    // Button Animation on Click
-    ctaButtons.forEach(button => {
-        button.addEventListener("click", function () {
-            this.classList.add("clicked");
-            setTimeout(() => this.classList.remove("clicked"), 300);
-        });
-    });
-
-    // Smooth Scrolling for Navigation
-    document.querySelectorAll("a[href^='#']").forEach(anchor => {
-        anchor.addEventListener("click", function (event) {
-            event.preventDefault();
-            document.querySelector(this.getAttribute("href")).scrollIntoView({
-                behavior: "smooth"
-            });
-        });
-    });
-});
-
-    </script>
 </body>
 </html>
