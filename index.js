@@ -91,7 +91,7 @@ app.post("/generate-content-social", async (req, res) => {
           const topicResponse = await openai.chat.completions.create({
               model: "gpt-4",
               messages: [{ role: "user", content: topicPrompt }],
-              max_tokens: 100,
+              max_tokens: 300,
               temperature: 0.7,
           });
 
@@ -136,61 +136,94 @@ app.post("/generate-content-social", async (req, res) => {
 });
 
 async function generateSocialMediaContent(res, data) {
-  const { companyName, description, targetAudience, services, socialMediaType, colorCombination, brandTone, purpose, topic, theme, adDetails } = data;
+    const { companyName, description, targetAudience, services, socialMediaType, colorCombination, brandTone, purpose, topic, theme, adDetails } = data;
 
-  let adDetailsText = "";
-  if (theme === "Advertising" && adDetails) {
-      adDetailsText = `This campaign is specifically promoting: ${adDetails}`;
-  }
+    let adDetailsText = "";
+    if (theme === "Advertising" && adDetails) {
+        adDetailsText = `This campaign is specifically promoting: ${adDetails}`;
+    }
 
-  let prompt = `
-  Generate a structured ${socialMediaType} for social media based on:
-  - **Company Name:** ${companyName}
-  - **Description:** ${description}
-  - **Target Audience:** ${targetAudience}
-  - **Services Provided:** ${services}
-  - **Topic:** ${topic}
-  - **Theme:** ${theme}
-  - **Purpose:** ${purpose}
-  - **Brand Tone:** ${brandTone}
-  - **Color Combination:** ${colorCombination}
-  - **Additional Details:** ${adDetailsText}
+    let prompt = `
+Generate a **structured ${socialMediaType} post** for social media based on:
+- **Company Name:** ${companyName}
+- **Description:** ${description}
+- **Target Audience:** ${targetAudience}
+- **Services Provided:** ${services}
+- **Topic:** ${topic}
+- **Theme:** ${theme}
+- **Purpose:** ${purpose}
+- **Brand Tone:** ${brandTone}
+- **Color Combination:** ${colorCombination}
+- **Additional Details:** ${adDetailsText}
 
-  The content should be optimized for ${socialMediaType} and include:
-  - **Topic:** A catchy and relevant topic
-  - **Caption:** A short and engaging caption
-  - **Hashtags:** SEO and trend-based hashtags
-  - **Text for Visuals (if needed):** Heading, Subheading, Bullet Points
-  - **Suggested Assets:** PNGs, Icons, or Backgrounds
-  - **Call to Action (CTA):** A strong CTA for engagement
+The content **must** include the following:
+1️⃣ **Topic:** A catchy and relevant topic.
+2️⃣ **Caption:** A short, engaging caption that is friendly and conversational.
+3️⃣ **Hashtags:** Exactly **3-4 relevant hashtags**.
+4️⃣ **Text for Visuals:** 
+    - **Heading:** A powerful one-liner that captures attention.
+    - **Subheading:** A short supporting statement.
+    - **Bullet Points:** (Optional) If necessary, add 2-3 concise bullet points.
+5️⃣ **CTA (Call to Action):** Provide **exactly 2 CTA options** (each max **5 words**).
 
-  Format the response like this:
-  - **Topic:** 
-  - **Caption:** 
-  - **Hashtags:** 
-  - **Visual Text:** 
-      - **Heading:** 
-      - **Subheading:** 
-      - **Bullet Points:** 
-  - **Suggested Assets:** 
-  - **CTA:** 
-  `;
 
-  try {
-      const aiResponse = await openai.chat.completions.create({
-          model: "gpt-4",
-          messages: [{ role: "user", content: prompt }],
-          max_tokens: 400,
-          temperature: 0.8,
-      });
+💡 **Important Rules**:
+- Keep the caption **natural and engaging** (avoid robotic phrasing).
+- CTA should **be action-oriented and under 5 words**.
+- Use **only 3-4 hashtags** (if they are not already in the caption).
+- **Avoid generic marketing language.** Write like a social media marketer, not AI.
+`;
 
-      const generatedContent = aiResponse.choices[0].message.content.trim();
-      res.render("generated-social", { content: generatedContent });
-  } catch (error) {
-      console.error("❌ Error generating AI content:", error);
-      res.status(500).send("Error generating content.");
-  }
+    try {
+        const aiResponse = await openai.chat.completions.create({
+            model: "gpt-4",
+            messages: [{ role: "user", content: prompt }],
+            max_tokens: 400,
+            temperature: 0.8,
+        });
+
+        const generatedContent = aiResponse.choices[0].message.content.trim();
+
+        // 🔹 Extract structured data using regex
+        const topicMatch = generatedContent.match(/\*\*Topic:\*\*\s*(.+)/);
+        const captionMatch = generatedContent.match(/\*\*Caption:\*\*\s*(.+)/);
+        const hashtagsMatch = generatedContent.match(/\*\*Hashtags:\*\*\s*(.+)/);
+        const headingMatch = generatedContent.match(/\*\*Heading:\*\*\s*(.+)/);
+        const subheadingMatch = generatedContent.match(/\*\*Subheading:\*\*\s*(.+)/);
+        const bulletPointsMatch = generatedContent.match(/\*\*Bullet Points:\*\*\s*(.+)/);
+        const ctaMatch = generatedContent.match(/\*\*CTA Options:\*\*\s*(.+)/);
+
+        const extractedContent = {
+            topic: topicMatch ? topicMatch[1].trim() : "No topic found.",
+            caption: captionMatch ? captionMatch[1].trim() : "No caption generated.",
+            hashtags: hashtagsMatch ? hashtagsMatch[1].trim() : "No hashtags available.",
+            heading: headingMatch ? headingMatch[1].trim() : "",
+            subheading: subheadingMatch ? subheadingMatch[1].trim() : "",
+            bulletPoints: bulletPointsMatch ? bulletPointsMatch[1].trim() : "",
+            cta: ctaMatch ? ctaMatch[1].trim() : "No CTA available.",
+        };
+
+        console.log("✅ Extracted AI Content:", extractedContent);
+
+        // 🔹 Pass extracted values to EJS template
+        res.render("generated-social", {
+            companyName,
+            socialMediaType,
+            caption: extractedContent.caption,
+            hashtags: extractedContent.hashtags,
+            heading: extractedContent.heading,
+            subheading: extractedContent.subheading,
+            bulletPoints: extractedContent.bulletPoints,
+            cta: extractedContent.cta,
+        });
+
+    } catch (error) {
+        console.error("❌ Error generating AI content:", error);
+        res.status(500).send("Error generating content.");
+    }
 }
+
+
 
 
 // app.post("/generate-content-article", async (req, res) => {
@@ -399,15 +432,20 @@ app.post("/branding-social-details", async (req, res) => {
 });
 
 
-// Route to display generated social media content
-app.get("/generated-social", (req, res) => {
-  res.render("generated-social", { content: "" });
-});
+
+
 
 // Route to display generated blog article
-app.get("/generated-article", (req, res) => {
-  res.render("generated-article", { content: "" });
+app.get("/generated-social", (req, res) => {
+    res.render("generated-social", { 
+        companyName: "EditEdge Multimedia",
+        socialMediaType: "Post",
+        caption: "Default sample caption for testing.",
+        hashtags: "#Default #Hashtags #ForTest",
+        cta: "Check it out! | Learn more!",
+    });
 });
+
 
 
 

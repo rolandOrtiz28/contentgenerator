@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Generated Social Media Post | Eddie AI</title>
+    <title>Practice Social Media Template | Eddie AI</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="script.js"></script>
     <style>
@@ -30,6 +30,15 @@
             border-radius: 12px;
             box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
             text-align: center;
+        }
+
+        select {
+            padding: 8px;
+            border-radius: 6px;
+            border: 1px solid #ddd;
+            font-size: 1rem;
+            cursor: pointer;
+            margin-bottom: 15px;
         }
 
         #preview {
@@ -176,73 +185,73 @@
 
     <div class="container">
         <h1 class="text-lg font-bold text-[var(--main-color)] text-center mb-3">
-            AI-Generated Social Media Post
+            Practice Social Media Template
         </h1>
 
-        <div id="preview">
-            <% if (typeof socialMediaType !== "undefined" && socialMediaType === "Post") { %>
-                <div class="post-layout">
-                    <div class="post-header">
-                        <div class="profile-pic"></div>
-                        <div>
-                            <p><strong><%= companyName %></strong></p>
-                            <p style="font-size: 0.8rem; color: #777;">Just now · 🌍</p>
-                        </div>
-                    </div>
-                    <div class="post-content">
-                        <h2><%= heading || "No heading provided." %></h2>
-                        <p><strong><%= subheading || "" %></strong></p>
-                        <p><%= caption || "No caption generated." %></p>
-                        <% if (bulletPoints) { %>
-                            <ul>
-                                <% bulletPoints.split("\n").forEach(point => { %>
-                                    <li>✔️ <%= point %></li>
-                                <% }) %>
-                            </ul>
-                        <% } %>
-                        <div class="post-image"></div>
-                        <p><%= hashtags || "" %></p>
-                    </div>
-                    <div class="post-footer">
-                        <span>👍 Like</span>
-                        <span>💬 Comment</span>
-                        <span>🔄 Share</span>
-                    </div>
-                </div>
-            <% } else if (typeof socialMediaType !== "undefined" && socialMediaType === "Reel") { %>
-                <div class="reel-layout">
-                    <div class="reel-video"></div>
-                    <div class="post-content">
-                        <h2><%= heading || "No heading provided." %></h2>
-                        <p>🎬 "<%= caption || "No caption generated." %>"</p>
-                    </div>
-                    <div class="reel-footer">
-                        <span>🎶 Sound: Trending Audio</span>
-                        <span>❤️ 1.2K</span>
-                    </div>
-                </div>
-            <% } else if (typeof socialMediaType !== "undefined" && socialMediaType === "Story") { %>
-                <div class="story-layout">
-                    <div class="story-image"></div>
-                    <p class="story-text"><%= heading || caption || "No caption generated." %></p>
-                </div>
-            <% } %>
-        </div>
-        
+        <!-- Dropdown to Select Type -->
+        <select id="postType">
+            <option value="Post">Facebook Post</option>
+            <option value="Reel">Instagram/TikTok Reel</option>
+            <option value="Story">Instagram/Facebook Story</option>
+        </select>
+
+        <!-- Live Preview Section -->
+        <div id="preview"></div>
+
         <!-- Text Table Section -->
         <div class="text-container">
             <h2 style="font-size: 1rem; font-weight: bold;">Generated Content</h2>
             <table class="text-table">
-                <tr><th>Heading</th><td><%= heading || "No heading provided." %></td></tr>
-                <tr><th>Subheading</th><td><%= subheading || "No subheading provided." %></td></tr>
-                <tr><th>Caption</th><td><%= caption || "No caption generated." %></td></tr>
-                <tr><th>Bullet Points</th><td><%= bulletPoints || "No bullet points." %></td></tr>
-                <tr><th>Hashtags</th><td><%= hashtags || "No hashtags available." %></td></tr>
-                <tr><th>CTA</th><td><%= cta || "No CTA available." %></td></tr>
+                <tr><th>Caption</th><td id="caption-text"></td></tr>
+                <tr><th>Hashtags</th><td id="hashtags-text"></td></tr>
+                <tr><th>CTA</th><td id="cta-text"></td></tr>
             </table>
         </div>
-        
-        
+    </div>
+
+    <script>
+        document.getElementById("postType").addEventListener("change", function() {
+            let selectedType = this.value;
+            let previewDiv = document.getElementById("preview");
+
+            let caption = "Want to make your brand stand out? Here are 3 easy tips! 🎨📸✨";
+            let hashtags = "#Design #Branding #Marketing";
+            let cta = "Start your journey today!";
+
+            previewDiv.innerHTML = ""; // Clear previous content
+
+            if (selectedType === "Post") {
+                previewDiv.innerHTML = `
+                    <div class="post-layout">
+                        <div class="post-header">
+                            <div class="profile-pic"></div>
+                            <div>
+                                <p><strong>EditEdge Multimedia</strong></p>
+                                <p style="font-size: 0.8rem; color: #777;">Just now · 🌍</p>
+                            </div>
+                        </div>
+                        <div class="post-content">
+                            <p>${caption}</p>
+                            <div class="post-image"></div>
+                            <p>${hashtags}</p>
+                        </div>
+                        <div class="post-footer">
+                            <span>👍 Like</span>
+                            <span>💬 Comment</span>
+                            <span>🔄 Share</span>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Update Table Content
+            document.getElementById("caption-text").textContent = caption;
+            document.getElementById("hashtags-text").textContent = hashtags;
+            document.getElementById("cta-text").textContent = cta;
+        });
+
+        document.getElementById("postType").dispatchEvent(new Event("change"));
+    </script>
 
 </body>
 </html>
