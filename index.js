@@ -194,8 +194,11 @@ async function generateSocialMediaContent(req, res, data) {
   🚀 **Generate a Social Media Post/Reel for ${companyName}**
   - AI **must provide all required fields** in the **exact format below**.
   - If any field is missing, **regenerate the content until all fields are complete**.
-  - **For reels/stories, AI must provide at least 3-4 scenes**.
-  - Each **scene must have a corresponding text on screen**.
+  - **For reels/stories, AI must provide exactly 3 scenes** (no optional Scene 4 or additional text).
+  - Each **scene must have a corresponding text on screen** that is concise, visually appealing, and completely different from the video script. The text on screen should be short (1-2 sentences max), optimized for on-screen display, and focus on key messages, calls to action, or brand highlights, NOT duplicating or including any narrative or descriptive text from the video script. For example:
+    - If the script describes “Show various poorly edited videos that do not engage or attract viewers,” the text on screen should be: “Struggling with Dull Videos? 🚫”
+    - If the script says “Transition to professionally edited videos by EditEdge, focusing on their sharpness, clarity, and engaging nature,” the text on screen could be: “Elevate Your Videos with EditEdge! 🌟”
+    - If the script describes “Display the EditEdge logo accompanied by contact information and a call-to-action,” the text on screen should be: “Transform Now – Contact Us! 📩”
   - Avoid robotic, overly structured writing—make it natural, human, and engaging.
   - Match the brand's tone: "${brandTone}".
   
@@ -210,7 +213,7 @@ async function generateSocialMediaContent(req, res, data) {
   - **Color Combination:** ${colorCombination}
   - **Additional Details:** ${adDetails}
   
-  📌 **FORMAT YOUR RESPONSE EXACTLY LIKE THIS:**  
+  📌 **FORMAT YOUR RESPONSE EXACTLY LIKE THIS, WITH NO EXTRA TEXT OR VARIATIONS:**  
   `;
   
   if (socialMediaType === "post") {
@@ -237,15 +240,13 @@ async function generateSocialMediaContent(req, res, data) {
   **Hashtags:** [Write Hashtags Here]  
   **CTA Options:** [1] [Write CTA 1] | [2] [Write CTA 2]  
   **Video Script & Structure:**  
-  - **Scene 1:** [Describe Scene 1]  
-  - **Scene 2:** [Describe Scene 2]  
-  - **Scene 3:** [Describe Scene 3]  
-  - **Scene 4 (Optional):** [Describe Scene 4]  
+  - **Scene 1:** [Describe Scene 1 with narrative or action details only]  
+  - **Scene 2:** [Describe Scene 2 with narrative or action details only]  
+  - **Scene 3:** [Describe Scene 3 with narrative or action details only]  
   **Text on Screen:**  
-  - **Scene 1:** [Write Text for Scene 1]  
-  - **Scene 2:** [Write Text for Scene 2]  
-  - **Scene 3:** [Write Text for Scene 3]  
-  - **Scene 4 (Optional):** [Write Text for Scene 4]  
+  - **Scene 1:** [Write concise, visually appealing text for Scene 1 (1-2 sentences max, different from script)]  
+  - **Scene 2:** [Write concise, visually appealing text for Scene 2 (1-2 sentences max, different from script)]  
+  - **Scene 3:** [Write concise, visually appealing text for Scene 3 (1-2 sentences max, different from script)]  
   **Video Assets:** [Describe assets to use, e.g., icons, branding elements]  
   **Texts on Poster:** [Not applicable for this format]  
   ---
@@ -253,13 +254,13 @@ async function generateSocialMediaContent(req, res, data) {
   }
   
   prompt += `
-  📌 **If a field is missing, regenerate the content!**
-  🚨 AI MUST FOLLOW THIS STRUCTURE EXACTLY.
+  📌 **If a field is missing or if text on screen duplicates or includes any part of the video script, regenerate the content!**
+  🚨 AI MUST FOLLOW THIS STRUCTURE EXACTLY, WITH EXACTLY 3 SCENES AND CORRESPONDING TEXTS, NO EXTRA TEXT OR VARIATIONS.
   `;
 
   let generatedContent;
   let attempts = 0;
-  const maxAttempts = 3;
+  const maxAttempts = 3; // Reduced back to 3 to minimize costs, assuming improvements will work
 
   while (attempts < maxAttempts) {
       try {
@@ -267,9 +268,9 @@ async function generateSocialMediaContent(req, res, data) {
               model: "gpt-4",
               messages: [{ role: "user", content: prompt }],
               max_tokens: 800,
-              temperature: 1.0, 
-              presence_penalty: 0.7,
-              frequency_penalty: 0.5
+              temperature: 0.7, // Further lowered for consistency
+              presence_penalty: 0.3, // Lowered to prioritize structure over uniqueness
+              frequency_penalty: 0.3 // Lowered to reduce repetition avoidance
           });
 
           generatedContent = aiResponse.choices[0].message.content.trim();
@@ -281,18 +282,33 @@ async function generateSocialMediaContent(req, res, data) {
               return match ? match[1].trim() : fallback;
           };
 
-          // Extract scenes and text on screen with improved regex
-          const scenePattern = /- \*\*Scene \d:\*\* (.+)/g;
-          const textPattern = /- \*\*Scene \d:\*\* (.+)/g;
+          // Extract scenes (script) and text on screen with stricter regex
+          const scriptPattern = /- \*\*Scene \d:\*\* (.+?)(?=\n- \*\*Scene \d|\n\*\*Text on Screen:)/gs;
+          const textOnScreenPattern = /- \*\*Scene \d:\*\* (.+?)(?=\n- \*\*Scene \d|\n---)/gs;
 
-          const scenes = [...generatedContent.matchAll(scenePattern)].map(match => match[1].trim());
-          const textOnScreen = [...generatedContent.matchAll(textPattern)].map(match => match[1].trim());
+          const scripts = [...generatedContent.matchAll(scriptPattern)].map(match => match[1].trim());
+          const textsOnScreen = [...generatedContent.matchAll(textOnScreenPattern)].map(match => match[1].trim());
 
-          // Ensure at least 3 scenes and corresponding texts are present
-          if ((socialMediaType === "reel" || socialMediaType === "story") && (scenes.length < 3 || textOnScreen.length < 3)) {
-              console.warn(`⚠️ Warning: Insufficient scenes (${scenes.length}) or text on screen (${textOnScreen.length}) detected. Regenerating...`);
+          // Ensure exactly 3 scenes and corresponding texts are present, and check for duplicates
+          if ((socialMediaType === "reel" || socialMediaType === "story") && (scripts.length !== 3 || textsOnScreen.length !== 3)) {
+              console.warn(`⚠️ Warning: Expected exactly 3 scenes and 3 texts on screen, but found ${scripts.length} scenes and ${textsOnScreen.length} texts. Regenerating...`);
               attempts++;
-              continue; // Regenerate if scenes or text are insufficient
+              continue; // Regenerate if scenes or texts are not exactly 3
+          }
+
+          // Check if text on screen duplicates script
+          let hasDuplicate = false;
+          for (let i = 0; i < 3; i++) {
+              if (scripts[i].toLowerCase().includes(textsOnScreen[i].toLowerCase()) || textsOnScreen[i].toLowerCase().includes(scripts[i].toLowerCase())) {
+                  hasDuplicate = true;
+                  break;
+              }
+          }
+
+          if (hasDuplicate) {
+              console.warn("⚠️ Warning: Text on screen duplicates video script. Regenerating...");
+              attempts++;
+              continue; // Regenerate if text on screen duplicates script
           }
 
           // Extract other fields
@@ -308,8 +324,8 @@ async function generateSocialMediaContent(req, res, data) {
               posterText: extractText("\\*\\*Texts? on Poster:?\\*\\*\\s*(.+)", generatedContent, "Not applicable for this format"),
               assets: extractText("\\*\\*Assets:?\\*\\*\\s*(.+)", generatedContent, "Missing assets"),
               videoConcept: extractText("\\*\\*Video Concept:?\\*\\*\\s*(.+)", generatedContent, "Missing video concept"),
-              script: scenes.length >= 3 ? scenes.join("\n") : "Missing required scenes",
-              textOnScreen: textOnScreen.length >= 3 ? textOnScreen.join("\n") : "Missing text for scenes",
+              script: scripts.join("\n"),
+              textOnScreen: textsOnScreen.join("\n"),
               videoAssets: extractText("\\*\\*Video Assets:?\\*\\*\\s*(.+)", generatedContent, "Missing video assets")
           };
 
@@ -339,10 +355,10 @@ async function generateSocialMediaContent(req, res, data) {
               cta: extractedContent.cta,
               posterText: extractedContent.posterText, // Always include posterText
               assets: extractedContent.assets,
-              videoConcept: extractedContent.videoConcept,
+              videoConcept: extractedContent.videoConcept || "Not applicable for this format",
               script: extractedContent.script,
               textOnScreen: extractedContent.textOnScreen,
-              videoAssets: extractedContent.videoAssets
+              videoAssets: extractedContent.videoAssets || "Not applicable for this format"
           };
 
           req.session.generatedContent = sessionContent;
@@ -358,13 +374,10 @@ async function generateSocialMediaContent(req, res, data) {
       }
   }
 
-  // If all attempts fail, return an error
-  console.error("❌ Failed to generate valid content after all attempts.");
-  res.status(500).send("Error generating content after multiple attempts.");
+  // If all attempts fail, return an error with debugging info
+  console.error("❌ Failed to generate valid content after all attempts. Last response:", generatedContent);
+  res.status(500).send("Error generating content after multiple attempts. Please try again with adjusted parameters or contact support.");
 }
-
-
-
 
 app.post("/generate-content-article", async (req, res) => {
   const { companyName, audience, brandTone, keyword } = req.body;
