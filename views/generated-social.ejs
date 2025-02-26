@@ -42,45 +42,71 @@
         }
 
         /* 📌 Facebook Post Layout */
-        .post-layout {
-            width: 500px;
-            border: 1px solid #ddd;
-            border-radius: 12px;
-            background: white;
-            box-shadow: 0px 2px 5px rgba(0, 0, 0, 0.1);
-            padding: 12px;
-        }
+        /* Facebook Post Layout */
+.post-layout {
+    width: 500px;
+    border: 1px solid #ddd;
+    border-radius: 12px;
+    background: white;
+    box-shadow: 0px 2px 5px rgba(0, 0, 0, 0.1);
+    padding: 12px;
+    margin-bottom: 15px;
+}
 
-        .post-header {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 10px;
-        }
+/* Header Section (Profile + Name) */
+.post-header {
+    display: flex;
+    align-items: start;
+    gap: 10px;
+    margin-bottom: 10px;
+}
 
-        .profile-pic {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            background: #ddd;
-        }
+.profile-pic {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: url('https://static.vecteezy.com/system/resources/thumbnails/003/337/584/small/default-avatar-photo-placeholder-profile-icon-vector.jpg') no-repeat center;
+    background-size: cover;
+}
 
-        .post-image {
-            width: 100%;
-            height: 250px;
-            background: url('https://via.placeholder.com/500x250') no-repeat center;
-            background-size: cover;
-            border-radius: 8px;
-            margin-top: 10px;
-        }
+/* Artificial Graphic Section */
+.artificial-graphic {
+    width: 100%;
+    height: 280px;
+    background: linear-gradient(135deg, #ddd, #aaa);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    padding: 15px;
+    color: #333;
+    margin-top: 10px;
+}
 
-        .post-footer {
-            display: flex;
-            justify-content: space-between;
-            margin-top: 10px;
-            font-size: 0.85rem;
-            color: #777;
-        }
+.artificial-graphic h2 {
+    font-size: 1.2rem;
+    font-weight: bold;
+    margin-bottom: 5px;
+}
+
+.artificial-graphic p {
+    font-size: 0.9rem;
+    color: #555;
+}
+
+/* Post Footer (Like, Comment, Share) */
+.post-footer {
+    display: flex;
+    justify-content: space-around;
+    margin-top: 10px;
+    font-size: 0.85rem;
+    color: #777;
+    padding: 8px 0;
+    border-top: 1px solid #ddd;
+}
+
 
         /* 🎬 Reel Layout */
         .reel-layout {
@@ -109,7 +135,7 @@
             justify-content: space-between;
             align-items: center;
             padding: 10px;
-            font-size: 0.85rem;
+            font-size: 0.8rem;
         }
 
         /* 📖 Story Layout */
@@ -123,7 +149,7 @@
             justify-content: center;
             border-radius: 12px;
             text-align: center;
-            font-size: 1.2rem;
+            font-size: 0.9rem;
             font-weight: bold;
             padding: 20px;
             position: relative;
@@ -180,69 +206,96 @@
         </h1>
 
         <div id="preview">
-            <% if (typeof socialMediaType !== "undefined" && socialMediaType === "Post") { %>
+            <% if (socialMediaType && socialMediaType.toLowerCase() === "post") { %>
                 <div class="post-layout">
+                    <!-- Post Header (Profile + Name) -->
                     <div class="post-header">
                         <div class="profile-pic"></div>
                         <div>
-                            <p><strong><%= companyName %></strong></p>
+                            <p><strong><%= companyName.split(" ").slice(0, 2).join(" ") %></strong></p>
                             <p style="font-size: 0.8rem; color: #777;">Just now · 🌍</p>
                         </div>
                     </div>
+            
+                    <!-- Post Content -->
                     <div class="post-content">
-                        <h2><%= heading || "No heading provided." %></h2>
-                        <p><strong><%= subheading || "" %></strong></p>
-                        <p><%= caption || "No caption generated." %></p>
-                        <% if (bulletPoints) { %>
-                            <ul>
-                                <% bulletPoints.split("\n").forEach(point => { %>
-                                    <li>✔️ <%= point %></li>
-                                <% }) %>
-                            </ul>
-                        <% } %>
-                        <div class="post-image"></div>
-                        <p><%= hashtags || "" %></p>
-                    </div>
-                    <div class="post-footer">
-                        <span>👍 Like</span>
-                        <span>💬 Comment</span>
-                        <span>🔄 Share</span>
-                    </div>
-                </div>
-            <% } else if (typeof socialMediaType !== "undefined" && socialMediaType === "Reel") { %>
-                <div class="reel-layout">
-                    <div class="reel-video"></div>
-                    <div class="post-content">
-                        <h2><%= heading || "No heading provided." %></h2>
-                        <p>🎬 "<%= caption || "No caption generated." %>"</p>
-                    </div>
-                    <div class="reel-footer">
-                        <span>🎶 Sound: Trending Audio</span>
-                        <span>❤️ 1.2K</span>
+                        <p style="margin-bottom: 5px;"><%= caption || "No caption generated." %></p>
+                        <p style="color: #007bff; font-size: 0.9rem;"><%= hashtags || "" %></p>
+            
+                        <!-- Artificial Graphic Section -->
+                        <div class="artificial-graphic">
+                            <div class="artificial-graphic">
+                                <h2><%= posterText || "No text provided." %></h2>
+                            </div>
+                        </div>
+            
+                        <!-- Like, Comment, and Share Section -->
+                        <div class="post-footer">
+                            <span>👍 Like</span>
+                            <span>💬 Comment</span>
+                            <span>🔄 Share</span>
+                        </div>
                     </div>
                 </div>
-            <% } else if (typeof socialMediaType !== "undefined" && socialMediaType === "Story") { %>
-                <div class="story-layout">
-                    <div class="story-image"></div>
-                    <p class="story-text"><%= heading || caption || "No caption generated." %></p>
-                </div>
-            <% } %>
+        
+            
+                <% } else if (socialMediaType && socialMediaType === "reel") { %>
+                    <div class="reel-layout">
+                        <div class="reel-video">
+                            <p class="scene-text">
+                                🎬 <%= textOnScreen ? textOnScreen.split("\n")[0] : "No scene available." %>
+                            </p>
+                        </div>
+                        <div class="post-content">
+                            <p style="font-size: 1rem; font-weight: bold; text-align: center;">
+                                "<%= caption || "No caption generated." %>"
+                            </p>
+                        </div>
+                        <div class="reel-footer">
+                            <span>🎶 Sound: Trending Audio</span>
+                            <span>❤️ 1.2K</span>
+                        </div>
+                    </div>
+                
+                <% } else if (socialMediaType && socialMediaType === "story") { %>
+                    <div class="story-layout">
+                        <div class="story-image"></div>
+                        <p class="story-text">
+                            <%= textOnScreen ? textOnScreen.split("\n")[0] : caption || "No text available." %>
+                        </p>
+                    </div>
+                
+                <% } else { %>
+                    <p>⚠️ No social media type detected. Please generate content again.</p>
+                <% } %>
         </div>
         
         <!-- Text Table Section -->
         <div class="text-container">
             <h2 style="font-size: 1rem; font-weight: bold;">Generated Content</h2>
             <table class="text-table">
-                <tr><th>Heading</th><td><%= heading || "No heading provided." %></td></tr>
-                <tr><th>Subheading</th><td><%= subheading || "No subheading provided." %></td></tr>
+                
                 <tr><th>Caption</th><td><%= caption || "No caption generated." %></td></tr>
-                <tr><th>Bullet Points</th><td><%= bulletPoints || "No bullet points." %></td></tr>
+                <tr><th>Texts on Poster</th><td><%= posterText || "No text provided." %></td></tr>
+
+               
                 <tr><th>Hashtags</th><td><%= hashtags || "No hashtags available." %></td></tr>
                 <tr><th>CTA</th><td><%= cta || "No CTA available." %></td></tr>
+                <tr><th>Assets</th><td><%= assets || "No assets provided." %></td></tr>
+                <% if (socialMediaType === "reel" || socialMediaType === "story") { %>
+                    <tr><th>Video Concept</th><td><%= videoConcept || "No concept provided." %></td></tr>
+                    <tr><th>Video Script</th><td><%= script || "No script provided." %></td></tr>
+                    <tr><th>Text on Screen</th><td><%= textOnScreen || "No text provided." %></td></tr>
+                    <tr><th>Video Assets</th><td><%= videoAssets || "No assets available." %></td></tr>
+                <% } %>
             </table>
         </div>
         
         
-
+        <script>
+            window.onload = function() {
+                console.log("🔄 Page refreshed");
+            };
+        </script>
 </body>
 </html>
