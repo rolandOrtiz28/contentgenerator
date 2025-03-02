@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Save Your Details | Eddie AI</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="flex items-center justify-center min-h-screen bg-gray-100">
+  <div class="bg-white shadow-xl rounded-2xl p-8 w-full max-w-lg">
+    <h1 class="text-3xl font-bold text-center text-[#101010] mb-2">Save Your Business Details?</h1>
+    <p class="text-gray-600 text-center mb-6">Would you like to save your details for future use?</p>
+
+    <p class="mb-4">Business: <%= business.companyName %></p>
+
+    <form action="/social-media/save-details" method="POST" class="space-y-4">
+      <div class="flex gap-4 justify-center">
+        <button type="submit" name="saveChoice" value="yes" class="bg-[#ff007f] text-white p-3 rounded-lg font-semibold hover:bg-pink-600">Yes, Save</button>
+        <button type="submit" name="saveChoice" value="no" class="bg-gray-300 text-[#101010] p-3 rounded-lg font-semibold hover:bg-gray-400">No, Continue</button>
+      </div>
+    </form>
+  </div>
+</body>
+</html>

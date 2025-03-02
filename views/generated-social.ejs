@@ -196,6 +196,21 @@
             background: var(--light-gray);
         }
 
+        .copy-all-btn {
+            background: var(--accent-color);
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            cursor: pointer;
+            font-size: 1rem;
+            border-radius: 5px;
+            margin-top: 15px;
+        }
+
+        .copy-all-btn:hover {
+            opacity: 0.8;
+        }
+
     </style>
 </head>
 <body>
@@ -220,6 +235,7 @@
                     <!-- Post Content -->
                     <div class="post-content">
                         <p style="margin-bottom: 5px;"><%= caption || "No caption generated." %></p>
+                        <p style="margin-bottom: 5px;"><%= mainContent || "No Content generated." %></p>
                         <p style="color: #007bff; font-size: 0.9rem;"><%= hashtags || "" %></p>
             
                         <!-- Artificial Graphic Section -->
@@ -273,24 +289,51 @@
         <!-- Text Table Section -->
         <div class="text-container">
             <h2 style="font-size: 1rem; font-weight: bold;">Generated Content</h2>
-            <table class="text-table">
-                
-                <tr><th>Caption</th><td><%= caption || "No caption generated." %></td></tr>
-                <tr><th>Texts on Poster</th><td><%= posterText || "No text provided." %></td></tr>
-
-               
-                <tr><th>Hashtags</th><td><%= hashtags || "No hashtags available." %></td></tr>
-                <tr><th>CTA</th><td><%= cta || "No CTA available." %></td></tr>
-                <tr><th>Assets</th><td><%= assets || "No assets provided." %></td></tr>
-                <% if (socialMediaType === "reel" || socialMediaType === "story") { %>
-                    <tr><th>Video Concept</th><td><%= videoConcept || "No concept provided." %></td></tr>
-                    <tr><th>Video Script</th><td><%= script || "No script provided." %></td></tr>
-                    <tr><th>Text on Screen</th><td><%= textOnScreen || "No text provided." %></td></tr>
-                    <tr><th>Video Assets</th><td><%= videoAssets || "No assets available." %></td></tr>
+            <table class="text-table" id="content-table">
+                <% if (socialMediaType === "post") { %>
+                    <tr><th>Caption</th><td data-label="Caption"><%= caption || "No caption generated." %></td></tr>
+                    <tr><th>Main Content</th><td data-label="Main Content"><%= mainContent || "No content generated." %></td></tr>
+                    <tr><th>Texts on Poster</th><td data-label="Texts on Poster"><%= posterText || "No text provided." %></td></tr>
+                    <tr><th>Hashtags</th><td data-label="Hashtags"><%= hashtags || "No hashtags available." %></td></tr>
+                    <tr><th>CTA</th><td data-label="CTA"><%= cta || "No CTA available." %></td></tr>
+                    <tr><th>Assets</th><td data-label="Assets"><%= assets || "No assets provided." %></td></tr>
+                <% } else if (socialMediaType === "reel" || socialMediaType === "story") { %>
+                    <tr><th>Caption</th><td data-label="Caption"><%= caption || "No caption generated." %></td></tr>
+                    <tr><th>Hashtags</th><td data-label="Hashtags"><%= hashtags || "No hashtags available." %></td></tr>
+                    <tr><th>CTA</th><td data-label="CTA"><%= cta || "No CTA available." %></td></tr>
+                    <tr><th>Video Concept</th><td data-label="Video Concept"><%= videoConcept || "No concept provided." %></td></tr>
+                    <tr><th>Video Script</th><td data-label="Video Script"><%= script || "No script provided." %></td></tr>
+                    <tr><th>Text on Screen</th><td data-label="Text on Screen"><%= textOnScreen || "No text provided." %></td></tr>
+                    <tr><th>Assets</th><td data-label="Assets"><%= assets || "No assets provided." %></td></tr>
                 <% } %>
             </table>
         </div>
-        
+
+        <!-- Copy All Button -->
+        <button class="copy-all-btn" onclick="copyAllContent()">Copy All</button>
+
+        <!-- JavaScript for Copying All Content with Labels -->
+        <script>
+            function copyAllContent() {
+                let textToCopy = "";
+                const tableRows = document.querySelectorAll("#content-table tr");
+
+                tableRows.forEach(row => {
+                    const columns = row.getElementsByTagName("td");
+                    if (columns.length > 0) {
+                        const label = columns[0].getAttribute("data-label"); // Get the label
+                        const text = columns[0].innerText.trim(); // Get the text
+                        textToCopy += `${label}: ${text}\n\n`; // Format it properly
+                    }
+                });
+
+                navigator.clipboard.writeText(textToCopy.trim()).then(() => {
+                    alert("Copied All Content!");
+                }).catch(err => {
+                    console.error("Failed to copy: ", err);
+                });
+            }
+        </script>
         
         <script>
             window.onload = function() {

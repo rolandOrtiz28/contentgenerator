@@ -40,20 +40,28 @@
         <p class="text-gray-600 text-center mb-6">Customize your social media content based on your brand.</p>
 
         <!-- Form -->
-        <form action="/generate-content-social" method="POST" class="space-y-6">
-            <!-- Company Name -->
-            <label class="block text-lg font-semibold">Company Name:</label>
-            <input type="text" name="companyName" value="<%= companyName %>" required
-                class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)] transition">
-
-            <!-- Business Description -->
-            <label class="block text-lg font-semibold">Business Description:</label>
-            <textarea name="description" class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)] transition"><%= description || "Describe Your Company" %></textarea>
-
-            <!-- Services Provided -->
-            <label class="block text-lg font-semibold">Services Provided:</label>
-            <textarea name="services" class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)] transition"><%= services || "What are the services you offer?" %></textarea>
-
+        <form action="/social-media/generate-content-social" method="POST" class="space-y-6">
+            <% if (isRegistered) { %>
+                <!-- Minimal fields for registered businesses -->
+                <label class="block text-lg font-semibold">Specific Product or Service to Focus On:</label>
+                <input type="text" name="focusService" value="<%= focusService %>" class="w-full p-3 border border-gray-300 rounded-lg">
+              <% } else { %>
+                <!-- Full fields for unregistered businesses -->
+                <label class="block text-lg font-semibold">Company Name:</label>
+                <input type="text" name="companyName" value="<%= companyName %>" required class="w-full p-3 border border-gray-300 rounded-lg">
+              
+                <label class="block text-lg font-semibold">Business Description:</label>
+                <textarea name="description" class="w-full p-3 border border-gray-300 rounded-lg" required><%= description %></textarea>
+              
+                <label class="block text-lg font-semibold">Services Provided:</label>
+                <textarea name="services" class="w-full p-3 border border-gray-300 rounded-lg" required><%= services %></textarea>
+              
+                <label class="block text-lg font-semibold">Specific Product or Service to Focus On:</label>
+                <input type="text" name="focusService" value="<%= focusService %>" class="w-full p-3 border border-gray-300 rounded-lg">
+              
+                <label class="block text-lg font-semibold">Target Audience:</label>
+                <input type="text" name="targetAudience" value="<%= targetAudience %>" required class="w-full p-3 border border-gray-300 rounded-lg">
+              <% } %>
             <!-- Content Type -->
             <label class="block text-lg font-semibold">What type of content do you want to generate?</label>
             <div class="flex gap-4 justify-center">
@@ -74,19 +82,36 @@
                 </label>
             </div>
 
-            <!-- Color Combination -->
-            <label class="block text-lg font-semibold">Color Combination:</label>
-            <input type="text" name="colorCombination" placeholder="e.g., Blue & White" required
-                class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)] transition">
+          
 
             <!-- Brand Tone -->
-            <label class="block text-lg font-semibold">Brand Tone:</label>
-            <select name="brandTone"
-                class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)] transition">
-                <option value="professional">Professional</option>
-                <option value="casual">Casual</option>
-                <option value="funny">Funny</option>
-            </select>
+           
+<label class="block text-lg font-semibold">Brand Tone:</label>
+<div class="relative">
+    <select id="brandToneSelect" name="brandTone"
+        class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)] transition"
+        onchange="toggleCustomTone()">
+        <option value="friendly">Friendly</option>
+        <option value="informative">Informative</option>
+        <option value="trustworthy">Trustworthy</option>
+        <option value="playful">Playful</option>
+        <option value="professional">Professional</option>
+        <option value="authentic">Authentic</option>
+        <option value="empowering">Empowering</option>
+        <option value="sophisticated">Sophisticated</option>
+        <option value="adventurous">Adventurous</option>
+        <option value="bold">Bold</option>
+        <option value="custom">Other (Specify Below)</option>
+    </select>
+</div>
+
+<input id="customBrandTone" type="text" name="customBrandTone" placeholder="Enter your own tone"
+    class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)] transition mt-2 hidden">
+
+<!-- Custom Brand Tone Input (Hidden by Default) -->
+<input id="customBrandTone" type="text" name="customBrandTone" placeholder="Enter your own tone"
+    class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)] transition mt-2 hidden">
+
 
             <!-- Purpose -->
             <label class="block text-lg font-semibold">Purpose:</label>
@@ -100,7 +125,7 @@
 
             <!-- Choose a Theme -->
             <label class="block text-lg font-semibold">Choose a Theme:</label>
-            <div class="flex gap-4 justify-center">
+            <div class="flex flex-wrap gap-4 justify-center">
                 <label class="flex items-center gap-2 cursor-pointer custom-radio">
                     <input type="radio" name="theme" value="Educational" onclick="toggleAdInput()" class="hidden peer">
                     <span class="w-5 h-5 inline-block border-2 border-gray-400 rounded-full peer-checked:border-[var(--accent-color)] peer-checked:bg-[var(--accent-color)] transition"></span>
@@ -116,7 +141,33 @@
                     <span class="w-5 h-5 inline-block border-2 border-gray-400 rounded-full peer-checked:border-[var(--accent-color)] peer-checked:bg-[var(--accent-color)] transition"></span>
                     <span class="text-[var(--main-color)] font-medium">Advertising</span>
                 </label>
+                <label class="flex items-center gap-2 cursor-pointer custom-radio">
+                    <input type="radio" name="theme" value="Motivational" onclick="toggleAdInput()" class="hidden peer">
+                    <span class="w-5 h-5 inline-block border-2 border-gray-400 rounded-full peer-checked:border-[var(--accent-color)] peer-checked:bg-[var(--accent-color)] transition"></span>
+                    <span class="text-[var(--main-color)] font-medium">Motivational</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer custom-radio">
+                    <input type="radio" name="theme" value="Engagement" onclick="toggleAdInput()" class="hidden peer">
+                    <span class="w-5 h-5 inline-block border-2 border-gray-400 rounded-full peer-checked:border-[var(--accent-color)] peer-checked:bg-[var(--accent-color)] transition"></span>
+                    <span class="text-[var(--main-color)] font-medium">Engagement</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer custom-radio">
+                    <input type="radio" name="theme" value="Entertainment" onclick="toggleAdInput()" class="hidden peer">
+                    <span class="w-5 h-5 inline-block border-2 border-gray-400 rounded-full peer-checked:border-[var(--accent-color)] peer-checked:bg-[var(--accent-color)] transition"></span>
+                    <span class="text-[var(--main-color)] font-medium">Entertainment</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer custom-radio">
+                    <input type="radio" name="theme" value="News & Updates" onclick="toggleAdInput()" class="hidden peer">
+                    <span class="w-5 h-5 inline-block border-2 border-gray-400 rounded-full peer-checked:border-[var(--accent-color)] peer-checked:bg-[var(--accent-color)] transition"></span>
+                    <span class="text-[var(--main-color)] font-medium">News & Updates</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer custom-radio">
+                    <input type="radio" name="theme" value="About" onclick="toggleAdInput()" class="hidden peer">
+                    <span class="w-5 h-5 inline-block border-2 border-gray-400 rounded-full peer-checked:border-[var(--accent-color)] peer-checked:bg-[var(--accent-color)] transition"></span>
+                    <span class="text-[var(--main-color)] font-medium">About</span>
+                </label>
             </div>
+            
 
             <!-- Advertising Details -->
             <div id="adDetails" class="hidden fade-in">
@@ -132,5 +183,21 @@
         </form>
     </div>
 
+
+    <script>
+        function toggleCustomTone() {
+            const select = document.getElementById("brandToneSelect");
+            const customInput = document.getElementById("customBrandTone");
+        
+            if (select.value === "custom") {
+                customInput.classList.remove("hidden");
+                customInput.setAttribute("required", "true");
+            } else {
+                customInput.classList.add("hidden");
+                customInput.removeAttribute("required");
+            }
+        }
+        </script>
+        
 </body>
 </html>
