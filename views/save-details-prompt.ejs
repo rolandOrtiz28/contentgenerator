@@ -13,7 +13,13 @@
 
     <p class="mb-4">Business: <%= business.companyName %></p>
 
+    <% if (error) { %>
+      <p class="text-red-500 text-center mb-4"><%= error %></p>
+    <% } %>
+
     <form action="/social-media/save-details" method="POST" class="space-y-4">
+      <label class="block text-lg font-semibold">Choose a Password:</label>
+      <input type="password" name="password" required class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#ff007f] transition">
       <div class="flex gap-4 justify-center">
         <button type="submit" name="saveChoice" value="yes" class="bg-[#ff007f] text-white p-3 rounded-lg font-semibold hover:bg-pink-600">Yes, Save</button>
         <button type="submit" name="saveChoice" value="no" class="bg-gray-300 text-[#101010] p-3 rounded-lg font-semibold hover:bg-gray-400">No, Continue</button>

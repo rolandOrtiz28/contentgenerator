@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Generated Social Media Post | Eddie AI</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script defer src="script.js"></script>
+    <script defer src="/js/script.js"></script>
     <style>
         :root {
             --main-color: #101010;
@@ -211,6 +211,64 @@
             opacity: 0.8;
         }
 
+        .button-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px; /* Space between buttons */
+    margin-top: 24px; /* Equivalent to Tailwind's mt-6 */
+    width: 100%;
+    max-width: 400px; /* Optional: Limits the container width for better centering */
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .copy-all-btn,
+  .home-btn,
+  .generate-btn {
+    padding: 12px 24px; /* Consistent padding */
+    border: none;
+    border-radius: 8px; /* Rounded corners */
+    font-size: 18px; /* Equivalent to Tailwind's text-lg */
+    font-weight: 600; /* Equivalent to Tailwind's font-semibold */
+    cursor: pointer;
+    text-align: center;
+    text-decoration: none; /* Remove underline from link */
+    display: inline-block; /* Ensure consistent block-level behavior */
+    width: 100%; /* Full width for the generate button form */
+    max-width: 300px; /* Optional: Caps the button width */
+    transition: background-color 0.2s ease; /* Smooth hover transition */
+  }
+
+  .copy-all-btn {
+    background-color: #1f2937; /* Dark gray */
+    color: #ffffff;
+  }
+  .copy-all-btn:hover {
+    background-color: #111827; /* Darker gray on hover */
+  }
+
+  .home-btn {
+    background-color: #e5e7eb; /* Light gray */
+    color: #1f2937;
+  }
+  .home-btn:hover {
+    background-color: #d1d5db; /* Slightly darker gray on hover */
+  }
+
+  .generate-btn {
+    background-color: var(--accent-color); /* Your accent color */
+    color: #ffffff;
+  }
+  .generate-btn:hover {
+    background-color: #db2777; /* Slightly darker pink on hover */
+  }
+
+  /* Ensure the form button aligns properly */
+  form {
+    width: 100%;
+  }
+
     </style>
 </head>
 <body>
@@ -310,8 +368,14 @@
         </div>
 
         <!-- Copy All Button -->
-        <button class="copy-all-btn" onclick="copyAllContent()">Copy All</button>
-
+        <div class="button-container">
+            <button class="copy-all-btn" onclick="copyAllContent()">Copy All</button>
+            <a href="/" class="home-btn">Home</a>
+            <form action="/social-media/generate-new-content" method="GET">
+              <button type="submit" class="generate-btn">Generate New Content?</button>
+            </form>
+          </div>
+        </div>
         <!-- JavaScript for Copying All Content with Labels -->
         <script>
             function copyAllContent() {
@@ -335,10 +399,6 @@
             }
         </script>
         
-        <script>
-            window.onload = function() {
-                console.log("🔄 Page refreshed");
-            };
-        </script>
+       
 </body>
 </html>

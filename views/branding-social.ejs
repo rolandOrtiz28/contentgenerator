@@ -4,7 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Select Branding | Eddie AI</title>
-  <script src="https://cdn.tailwindcss.com"></script> <!-- Keep for now, or switch to local CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
 </head>
 <body class="flex items-center justify-center min-h-screen bg-gray-100">
   <div class="bg-white shadow-xl rounded-2xl p-8 w-full max-w-lg">
@@ -18,12 +19,17 @@
     <form action="/social-media/branding-social-details" method="POST" class="space-y-6">
       <!-- Registered Business Dropdown -->
       <label class="block text-lg font-semibold">Is your business already registered?</label>
-      <select name="selectedBusiness" class="w-full p-3 border border-gray-300 rounded-lg">
+      <select name="selectedBusiness" onchange="if(this.value) document.getElementById('passwordField').classList.remove('hidden'); else document.getElementById('passwordField').classList.add('hidden');" class="w-full p-3 border border-gray-300 rounded-lg">
         <option value="">Select a business (or fill below)</option>
         <% businesses.forEach(business => { %>
           <option value="<%= business._id %>"><%= business.companyName %></option>
         <% }) %>
       </select>
+      
+      <div id="passwordField" class="hidden mt-4">
+        <label class="block text-lg font-semibold">Password:</label>
+        <input type="password" name="password" class="w-full p-3 border border-gray-300 rounded-lg">
+      </div>
 
       <hr class="my-4">
 

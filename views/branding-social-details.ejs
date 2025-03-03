@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Branding Details | Eddie AI</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.tailwindcss.com"></script> <!-- Consider switching to local Tailwind (output.css) as discussed earlier -->
     <script defer src="script.js"></script>
     <style>
         :root {
@@ -45,23 +45,23 @@
                 <!-- Minimal fields for registered businesses -->
                 <label class="block text-lg font-semibold">Specific Product or Service to Focus On:</label>
                 <input type="text" name="focusService" value="<%= focusService %>" class="w-full p-3 border border-gray-300 rounded-lg">
-              <% } else { %>
+            <% } else { %>
                 <!-- Full fields for unregistered businesses -->
                 <label class="block text-lg font-semibold">Company Name:</label>
                 <input type="text" name="companyName" value="<%= companyName %>" required class="w-full p-3 border border-gray-300 rounded-lg">
-              
+                
                 <label class="block text-lg font-semibold">Business Description:</label>
                 <textarea name="description" class="w-full p-3 border border-gray-300 rounded-lg" required><%= description %></textarea>
-              
+                
                 <label class="block text-lg font-semibold">Services Provided:</label>
                 <textarea name="services" class="w-full p-3 border border-gray-300 rounded-lg" required><%= services %></textarea>
-              
+                
                 <label class="block text-lg font-semibold">Specific Product or Service to Focus On:</label>
                 <input type="text" name="focusService" value="<%= focusService %>" class="w-full p-3 border border-gray-300 rounded-lg">
-              
+                
                 <label class="block text-lg font-semibold">Target Audience:</label>
                 <input type="text" name="targetAudience" value="<%= targetAudience %>" required class="w-full p-3 border border-gray-300 rounded-lg">
-              <% } %>
+            <% } %>
             <!-- Content Type -->
             <label class="block text-lg font-semibold">What type of content do you want to generate?</label>
             <div class="flex gap-4 justify-center">
@@ -82,36 +82,28 @@
                 </label>
             </div>
 
-          
-
             <!-- Brand Tone -->
-           
-<label class="block text-lg font-semibold">Brand Tone:</label>
-<div class="relative">
-    <select id="brandToneSelect" name="brandTone"
-        class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)] transition"
-        onchange="toggleCustomTone()">
-        <option value="friendly">Friendly</option>
-        <option value="informative">Informative</option>
-        <option value="trustworthy">Trustworthy</option>
-        <option value="playful">Playful</option>
-        <option value="professional">Professional</option>
-        <option value="authentic">Authentic</option>
-        <option value="empowering">Empowering</option>
-        <option value="sophisticated">Sophisticated</option>
-        <option value="adventurous">Adventurous</option>
-        <option value="bold">Bold</option>
-        <option value="custom">Other (Specify Below)</option>
-    </select>
-</div>
+            <label class="block text-lg font-semibold">Brand Tone:</label>
+            <div class="relative">
+                <select id="brandToneSelect" name="brandTone"
+                    class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)] transition"
+                    onchange="toggleCustomTone()">
+                    <option value="friendly">Friendly</option>
+                    <option value="informative">Informative</option>
+                    <option value="trustworthy">Trustworthy</option>
+                    <option value="playful">Playful</option>
+                    <option value="professional">Professional</option>
+                    <option value="authentic">Authentic</option>
+                    <option value="empowering">Empowering</option>
+                    <option value="sophisticated">Sophisticated</option>
+                    <option value="adventurous">Adventurous</option>
+                    <option value="bold">Bold</option>
+                    <option value="custom">Other (Specify Below)</option>
+                </select>
+            </div>
 
-<input id="customBrandTone" type="text" name="customBrandTone" placeholder="Enter your own tone"
-    class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)] transition mt-2 hidden">
-
-<!-- Custom Brand Tone Input (Hidden by Default) -->
-<input id="customBrandTone" type="text" name="customBrandTone" placeholder="Enter your own tone"
-    class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)] transition mt-2 hidden">
-
+            <input id="customBrandTone" type="text" name="customBrandTone" placeholder="Enter your own tone"
+                class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)] transition mt-2 hidden">
 
             <!-- Purpose -->
             <label class="block text-lg font-semibold">Purpose:</label>
@@ -167,7 +159,6 @@
                     <span class="text-[var(--main-color)] font-medium">About</span>
                 </label>
             </div>
-            
 
             <!-- Advertising Details -->
             <div id="adDetails" class="hidden fade-in">
@@ -183,7 +174,6 @@
         </form>
     </div>
 
-
     <script>
         function toggleCustomTone() {
             const select = document.getElementById("brandToneSelect");
@@ -197,7 +187,23 @@
                 customInput.removeAttribute("required");
             }
         }
-        </script>
-        
+
+        // Function to toggle adDetails input based on theme
+        function toggleAdInput() {
+            const theme = document.querySelector('input[name="theme"]:checked');
+            const adDetails = document.getElementById("adDetails");
+            if (theme && theme.value === "Advertising") {
+                adDetails.classList.remove("hidden");
+                adDetails.classList.add("fade-in");
+            } else {
+                adDetails.classList.add("hidden");
+            }
+        }
+
+        // Initialize adDetails visibility on page load
+        document.addEventListener("DOMContentLoaded", () => {
+            toggleAdInput();
+        });
+    </script>
 </body>
 </html>

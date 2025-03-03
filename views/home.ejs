@@ -4,7 +4,218 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Eddie's Content - AI Generator</title>
-    <link rel="stylesheet" href="/css/style.css">
+    <style>
+        /* Import Google Fonts */
+        @import url('https://fonts.googleapis.com/css2?family=Raleway:wght@700&family=Montserrat:wght@400;500&display=swap');
+
+        /* Reset and Base Styles */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Montserrat', sans-serif;
+            color: #303030;
+            background-color: #f0f0f0;
+            /* Subtle noise effect approximation */
+            background-image: linear-gradient(135deg, #f0f0f0 50%, #e8e8e8 50%);
+            line-height: 1.6;
+        }
+
+        /* Navigation Bar */
+        .navbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 40px;
+            background-color: #303030;
+            position: fixed;
+            width: 100%;
+            top: 0;
+            z-index: 1000;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .logo {
+            font-family: 'Raleway', sans-serif;
+            font-size: 24px;
+            color: #f0f0f0;
+            font-weight: 700;
+        }
+
+        .logo span {
+            color: #ff007f;
+            text-shadow: 0 0 5px #ff007f, 0 0 10px #db2777; /* Subtle glow */
+        }
+
+        .cta-btn {
+            background-color: #ff007f;
+            color: #f0f0f0;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            font-family: 'Raleway', sans-serif;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            text-decoration: none;
+            transition: background-color 0.3s ease;
+            box-shadow: 0 0 5px #ff007f; /* Subtle outer glow */
+        }
+
+        .cta-btn:hover {
+            background-color: #db2777;
+            box-shadow: 0 0 8px #db2777; /* Slightly enhanced glow on hover */
+        }
+
+        .cta-btn a {
+            color: #f0f0f0;
+            text-decoration: none;
+        }
+
+        /* Hero Section */
+        .hero {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            text-align: center;
+            padding: 20px;
+            background: linear-gradient(135deg, #f0f0f0 50%, #e8e8e8 50%);
+            animation: fadeIn 1s ease-in-out;
+        }
+
+        .hero h1 {
+            font-family: 'Raleway', sans-serif;
+            font-size: 48px;
+            color: #303030;
+            margin-bottom: 20px;
+        }
+
+        .hero h1 span {
+            color: #ff007f;
+            text-shadow: 0 0 5px #ff007f, 0 0 10px #db2777; /* Subtle glow */
+        }
+
+        .hero p {
+            font-size: 20px;
+            max-width: 600px;
+            margin-bottom: 30px;
+        }
+
+        /* Features Section */
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 30px;
+            padding: 60px 40px;
+            background-color: #f0f0f0;
+        }
+
+        .feature-card {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+            transition: transform 0.3s ease;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .feature-card img {
+            width: 80px;
+            height: 80px;
+            margin-bottom: 15px;
+        }
+
+        .feature-card h3 {
+            font-family: 'Raleway', sans-serif;
+            font-size: 24px;
+            color: #303030;
+            margin-bottom: 10px;
+        }
+
+        .feature-card p {
+            font-size: 16px;
+            color: #555;
+        }
+
+        /* Call to Action Section */
+        .cta-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 60px 40px;
+            background-color: #303030;
+            color: #f0f0f0;
+            text-align: center;
+        }
+
+        .cta-section h2 {
+            font-family: 'Raleway', sans-serif;
+            font-size: 36px;
+            margin-bottom: 20px;
+        }
+
+        /* Animations */
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .navbar {
+                padding: 15px 20px;
+            }
+
+            .logo {
+                font-size: 20px;
+            }
+
+            .hero h1 {
+                font-size: 36px;
+            }
+
+            .hero p {
+                font-size: 16px;
+            }
+
+            .features {
+                padding: 40px 20px;
+                grid-template-columns: 1fr;
+            }
+
+            .cta-section {
+                padding: 40px 20px;
+            }
+
+            .cta-section h2 {
+                font-size: 28px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .hero h1 {
+                font-size: 28px;
+            }
+
+            .hero p {
+                font-size: 14px;
+            }
+
+            .cta-btn {
+                padding: 8px 16px;
+                font-size: 14px;
+            }
+        }
+    </style>
     <script defer src="script.js"></script>
 </head>
 <body>
@@ -25,17 +236,17 @@
     <!-- Features Section -->
     <section class="features">
         <div class="feature-card">
-            <img src="icons/content.svg" alt="Content">
+            <img src="/images/AI.svg" alt="Content">
             <h3>AI-Powered Content</h3>
             <p>Generate blogs, social media posts, and SEO-optimized content instantly.</p>
         </div>
         <div class="feature-card">
-            <img src="icons/fast.svg" alt="Speed">
+            <img src="/images/fast.svg" alt="Speed">
             <h3>Speed & Efficiency</h3>
             <p>Turn ideas into high-quality content in seconds with AI-assisted workflows.</p>
         </div>
         <div class="feature-card">
-            <img src="icons/quality.svg" alt="Quality">
+            <img src="/images/prof.svg" alt="Quality">
             <h3>Professional Quality</h3>
             <p>Ensure every piece of content is engaging, unique, and high-quality.</p>
         </div>
