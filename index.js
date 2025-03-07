@@ -22,7 +22,7 @@ const PORT = process.env.PORT || 3000;
 
 const secret = process.env.SESSION_SECRET || "default-secret-please-change-me";
 const dbUrl = process.env.DB_URL || "mongodb://127.0.0.1:27017/aicontentgenerator";
-
+// 
 const frameSrcUrls = [
   "https://js.stripe.com/",
   "https://www.sandbox.paypal.com/",
@@ -150,23 +150,27 @@ const store = new MongoDBStore({
     collection: "sessions",
     touchAfter: 24 * 3600,
 });
+store.on("connected", () => {
+  console.log("MongoDB session store connected");
+});
+
 store.on("error", (error) => {
-    console.error("❌ Session Store Error:", error);
+  console.error("Session store error:", error);
 });
 
 // Session Configuration
 app.use(session({
-    secret: secret,
-    name: "_editEdge",
-    resave: false,
-    saveUninitialized: false,
-    store: store,
-    cookie: {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "strict",
-        maxAge: 1000 * 60 * 60 * 24 * 7,
-    },
+  secret: secret,
+  name: "_editEdge",
+  resave: false,
+  saveUninitialized: false,
+  store: store,
+  cookie: {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production" ? true : false, // Ensure false in dev
+    sameSite: "strict",
+    maxAge: 1000 * 60 * 60 * 24 * 7,
+  },
 }));
 
 // Middleware
@@ -197,6 +201,27 @@ try {
 
 // Routes
 app.get("/", (req, res) => res.render("home"));
+app.get("/practice", (req, res) => {
+  const sampleData = {
+    companyName: "EditEdge Multimedia: Video Editing, Graphic Design, 3D Art, Web Development & Digital Marketing",
+    description: "EditEdge Multimedia is a full-service creative agency offering video editing, graphic design, 3D art, web development, and digital marketing. They blend technical expertise with creativity to enhance clients' digital presence.",
+    targetAudience: "small medium entrepreneur",
+    services: "Video Editing, Graphic Design, 3D Art, Web Development, Digital Marketing",
+    socialMediaType: "post",
+    brandTone: "professional",
+    purpose: "Promote services",
+    theme: "Educational",
+    adDetails: "Highlight video editing expertise",
+    suggestedTopics: [
+      "Unlocking Creativity: Exploring the World of Video Editing with EditEdge Multimedia",
+      "How EditEdge Multimedia Combines Graphic Design & 3D Art to Create Stunning Visuals",
+      "Boosting Your Online Presence with EditEdge Multimedia’s Web Development & Digital Marketing",
+      "Understanding the Importance of Professional Video Editing in Digital Marketing: A Look at EditEdge Multimedia’s Services",
+      "Revolutionizing Creative Solutions: A Deep Dive into EditEdge Multimedia’s Comprehensive Services"
+    ]
+  };
+  res.render("select-topic", sampleData);
+});
 app.post("/select-branding", (req, res) => {
     const contentType = req.body.contentType;
     if (!contentType) return res.status(400).send("Content type is required");

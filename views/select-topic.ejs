@@ -54,9 +54,12 @@
             <label class="block text-lg font-semibold">Choose a Topic:</label>
             <div class="space-y-4">
                 <% suggestedTopics.forEach(function(topic, index) { %>
-                    <label class="flex items-center gap-2 cursor-pointer custom-radio">
-                        <input type="radio" name="topic" value="<%= topic %>" required class="hidden peer">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <!-- Radio Button -->
+                        <input type="radio" name="topic" value="<%= topic %>" required class="peer hidden">
+                        <!-- Custom Circle -->
                         <span class="w-5 h-5 inline-block border-2 border-gray-400 rounded-full peer-checked:border-[var(--accent-color)] peer-checked:bg-[var(--accent-color)] transition"></span>
+                        <!-- Topic Name -->
                         <span class="text-[var(--main-color)] font-medium"><%= topic %></span>
                     </label>
                 <% }) %>

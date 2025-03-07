@@ -28,6 +28,9 @@ router.post("/branding-social-details", async (req, res) => {
     console.log("🔄 Session cleared for new business entry.");
   }
 
+  // Add the first log here, before checking or storing the session data
+  console.log("Before storing temp business details:", req.session);
+
   if (selectedBusiness) {
     try {
       const business = await Business.findById(selectedBusiness);
@@ -72,6 +75,24 @@ router.post("/branding-social-details", async (req, res) => {
     }
   }
 
+  // If no selected business, store the temp business details
+  req.session.tempBusinessDetails = {
+    companyName: companyName || "Unnamed Company",
+    description: description || "No description provided.",
+    targetAudience: targetAudience || "General audience",
+    services: services || "General services",
+    focusService: focusService || "All services",
+    socialMediaType: req.body.socialMediaType || "post",
+    brandTone: req.body.brandTone || "professional",
+    purpose: req.body.purpose || "Promote services",
+    topic: req.body.topic || "Default Topic", 
+    theme: req.body.theme || "Educational",
+    adDetails: req.body.adDetails || "No additional details"
+  };
+
+  // Add the second log here, after storing the session data
+  console.log("After storing temp business details:", req.session);
+
   if (hasWebsite === "yes" && companyWebsite) {
     console.log("🔄 Redirecting to extract-branding with URL:", companyWebsite);
     return res.redirect(`/social-media/extract-branding?website=${encodeURIComponent(companyWebsite)}`);
@@ -91,6 +112,7 @@ router.post("/branding-social-details", async (req, res) => {
     });
   }
 });
+
 
 router.post("/generate-content-social", async (req, res) => {
   const { 
@@ -153,7 +175,7 @@ router.post("/generate-content-social", async (req, res) => {
       socialMediaType: socialMediaType || "post",
       brandTone: finalBrandTone || "professional",
       purpose: purpose || "Promote services",
-      topic: topic || "",
+      topic: topic || "No description provided.",
       theme: theme || "Educational",
       adDetails: adDetails || "No additional details"
     };
@@ -166,28 +188,28 @@ router.post("/generate-content-social", async (req, res) => {
 
   console.log("Session state after storing tempBusinessDetails:", req.session);
 
-  if (!topic) {
-    console.log("🚀 No topic provided - Generating AI-suggested topics...");
-    const topicPrompt = `Suggest 5 topic ideas for a ${socialMediaType} about ${businessData.companyName} and its services (${businessData.services}).`;
-    try {
-      const topicResponse = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [{ role: "user", content: topicPrompt }],
-        max_tokens: 300,
-        temperature: 0.7,
-      });
+  // if (!topic) {
+  //   console.log("🚀 No topic provided - Generating AI-suggested topics...");
+  //   const topicPrompt = `Suggest 5 topic ideas for a ${socialMediaType} about ${businessData.companyName} and its services (${businessData.services}).`;
+  //   try {
+  //     const topicResponse = await openai.chat.completions.create({
+  //       model: "gpt-4o-mini",
+  //       messages: [{ role: "user", content: topicPrompt }],
+  //       max_tokens: 300,
+  //       temperature: 0.7,
+  //     });
 
-      const suggestedTopics = topicResponse.choices[0].message.content.trim().split("\n");
-      return res.render("select-topic", { 
-        ...businessData,
-        suggestedTopics,
-        isRegistered: !!req.session.businessDetails
-      });
-    } catch (error) {
-      console.error("❌ Error generating AI topics:", error);
-      return res.status(500).send("Error generating suggested topics.");
-    }
-  }
+  //     const suggestedTopics = topicResponse.choices[0].message.content.trim().split("\n");
+  //     return res.render("select-topic", { 
+  //       ...businessData,
+  //       suggestedTopics,
+  //       isRegistered: !!req.session.businessDetails
+  //     });
+  //   } catch (error) {
+  //     console.error("❌ Error generating AI topics:", error);
+  //     return res.status(500).send("Error generating suggested topics.");
+  //   }
+  // }
 
   await generateSocialMediaContent(req, res, businessData);
 });

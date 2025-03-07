@@ -4,9 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Select a Topic | Eddie AI</title>
-    <link rel="stylesheet" href="/css/output.css">
+    <script src="https://cdn.tailwindcss.com"></script> <!-- Using Tailwind CDN for now; switch to local in production -->
     <style>
-        /* Your custom CSS here */
         :root {
             --main-color: #101010;
             --accent-color: #ff007f;
@@ -19,44 +18,34 @@
 
         .custom-radio {
             cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
         }
 
-        .custom-radio input[type="radio"] {
-            display: none !important;
-            -webkit-appearance: none !important;
-            -moz-appearance: none !important;
-            appearance: none !important;
-            opacity: 0 !important;
-            position: absolute;
-            pointer-events: none;
+        .custom-radio input {
+            display: none !important; /* Force hide the native radio button */
         }
 
         .custom-radio span {
-            width: 20px;
-            height: 20px;
-            border: 2px solid #d1d5db;
-            border-radius: 9999px !important;
+            width: 20px; /* Slightly larger for better visibility */
+            height: 20px; /* Slightly larger for better visibility */
+            border: 2px solid #d1d5db; /* Default gray border from Tailwind */
+            border-radius: 50%; /* Ensure circular shape */
             display: inline-block;
             position: relative;
             transition: border-color 0.3s, background-color 0.3s;
-            flex-shrink: 0;
-            vertical-align: middle;
+            vertical-align: middle; /* Align with text */
         }
 
-        .custom-radio input[type="radio"]:checked + span {
-            border-color: var(--accent-color) !important;
-            background: var(--accent-color) !important;
+        .custom-radio input:checked + span {
+            border-color: var(--accent-color);
+            background: var(--accent-color);
         }
 
-        .custom-radio input[type="radio"]:checked + span::after {
+        .custom-radio input:checked + span::after {
             content: '';
             width: 10px;
             height: 10px;
-            background: white !important;
-            border-radius: 9999px !important;
+            background: white;
+            border-radius: 50%;
             position: absolute;
             top: 50%;
             left: 50%;
