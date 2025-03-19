@@ -1,13 +1,24 @@
 const express = require('express');
 const router = express.Router();
 const OpenAI = require("openai");
-const cheerio = require("cheerio");
-const puppeteer = require("puppeteer");
+const axios = require('axios'); // Added for Perplexity API
 const Business = require('../models/Business');
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
+
+// Initialize Perplexity API
+const perplexityApi = axios.create({
+  baseURL: 'https://api.perplexity.ai', // Adjust if needed
+  headers: {
+    'Authorization': `Bearer ${process.env.PERPLEXITY_API_KEY}`,
+    'Content-Type': 'application/json',
+  },
+});
+
+// Simple in-memory cache for Perplexity results (optional)
+const cache = new Map();
 
 router.get("/branding-social", async (req, res) => {
   try {
@@ -22,13 +33,11 @@ router.get("/branding-social", async (req, res) => {
 router.post("/branding-social-details", async (req, res) => {
   const { hasWebsite, companyWebsite, selectedBusiness, companyName, targetAudience, services, description, focusService, password } = req.body;
 
-  // 🛠 Clear session when adding a new business
   if (!selectedBusiness) {
     req.session.businessDetails = null;
     console.log("🔄 Session cleared for new business entry.");
   }
 
-  // Add the first log here, before checking or storing the session data
   console.log("Before storing temp business details:", req.session);
 
   if (selectedBusiness) {
@@ -75,7 +84,6 @@ router.post("/branding-social-details", async (req, res) => {
     }
   }
 
-  // If no selected business, store the temp business details
   req.session.tempBusinessDetails = {
     companyName: companyName || "Unnamed Company",
     description: description || "No description provided.",
@@ -90,7 +98,6 @@ router.post("/branding-social-details", async (req, res) => {
     adDetails: req.body.adDetails || "No additional details"
   };
 
-  // Add the second log here, after storing the session data
   console.log("After storing temp business details:", req.session);
 
   if (hasWebsite === "yes" && companyWebsite) {
@@ -112,7 +119,6 @@ router.post("/branding-social-details", async (req, res) => {
     });
   }
 });
-
 
 router.post("/generate-content-social", async (req, res) => {
   const { 
@@ -180,36 +186,12 @@ router.post("/generate-content-social", async (req, res) => {
       adDetails: adDetails || "No additional details"
     };
   
-    // 🛠 Explicitly update session with new business details
     req.session.tempBusinessDetails = businessData;
-    req.session.businessDetails = null;  // Ensure old business details are removed
+    req.session.businessDetails = null;
     console.log("Temp business details stored in session:", req.session.tempBusinessDetails);
   }
 
   console.log("Session state after storing tempBusinessDetails:", req.session);
-
-  // if (!topic) {
-  //   console.log("🚀 No topic provided - Generating AI-suggested topics...");
-  //   const topicPrompt = `Suggest 5 topic ideas for a ${socialMediaType} about ${businessData.companyName} and its services (${businessData.services}).`;
-  //   try {
-  //     const topicResponse = await openai.chat.completions.create({
-  //       model: "gpt-4o-mini",
-  //       messages: [{ role: "user", content: topicPrompt }],
-  //       max_tokens: 300,
-  //       temperature: 0.7,
-  //     });
-
-  //     const suggestedTopics = topicResponse.choices[0].message.content.trim().split("\n");
-  //     return res.render("select-topic", { 
-  //       ...businessData,
-  //       suggestedTopics,
-  //       isRegistered: !!req.session.businessDetails
-  //     });
-  //   } catch (error) {
-  //     console.error("❌ Error generating AI topics:", error);
-  //     return res.status(500).send("Error generating suggested topics.");
-  //   }
-  // }
 
   await generateSocialMediaContent(req, res, businessData);
 });
@@ -366,7 +348,7 @@ Generate a Social Media ${socialMediaType === "reel" || socialMediaType === "sto
       } : {}),
       ...(socialMediaType === "post" ? {
         posterText: generatedContent.match(/\*\*Texts? on Poster:\*\* (.+)/)?.[1] || "Default poster text",
-      } : {}) // ✅ Only set posterText for posts
+      } : {})
     };
 
     console.log("✅ Extracted Content:", extractedContent);
@@ -379,7 +361,6 @@ Generate a Social Media ${socialMediaType === "reel" || socialMediaType === "sto
       tempBusinessDetails: req.session.tempBusinessDetails
     });
 
-    // Ensure we check for tempBusinessDetails even if businessDetails exists
     if (req.session.tempBusinessDetails) {
       console.log("Redirecting to save-details-prompt for unregistered business");
       return res.redirect("/social-media/save-details-prompt");
@@ -409,12 +390,12 @@ router.post("/save-details", async (req, res) => {
     try {
       const businessData = {
         ...req.session.tempBusinessDetails,
-        password // Store the plain password; it will be hashed in the pre-save hook
+        password
       };
       
       const business = new Business(businessData);
       await business.save();
-      req.session.businessDetails = business; // Save to session as registered
+      req.session.businessDetails = business;
       delete req.session.tempBusinessDetails;
       res.redirect("/social-media/generated-social");
     } catch (error) {
@@ -425,7 +406,7 @@ router.post("/save-details", async (req, res) => {
       });
     }
   } else if (saveChoice === "no") {
-    delete req.session.tempBusinessDetails; // Clear temp data if not saving
+    delete req.session.tempBusinessDetails;
     res.redirect("/social-media/generated-social");
   } else {
     res.render("save-details-prompt", { 
@@ -435,6 +416,7 @@ router.post("/save-details", async (req, res) => {
   }
 });
 
+// Updated /extract-branding route using Perplexity with cost-saving measures
 router.get("/extract-branding", async (req, res) => {
   const websiteURL = req.query.website;
 
@@ -443,78 +425,125 @@ router.get("/extract-branding", async (req, res) => {
   }
 
   try {
-    console.log("Fetching website data from:", websiteURL);
-    const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
-    const page = await browser.newPage();
-    await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
-    await page.goto(websiteURL, { waitUntil: "domcontentloaded", timeout: 45000 });
-    const html = await page.content();
-    await browser.close();
+    console.log("Processing website:", websiteURL);
 
-    const $ = cheerio.load(html);
-    const companyName = $("title").first().text().trim() || "Unknown Company";
-    let description = $('meta[name="description"]').attr("content") || "";
-
-    if (!description || description.toLowerCase().includes("default blog description")) {
-      $("p, h2, h3").each((index, element) => {
-        const text = $(element).text().trim();
-        if (!/terms of service|privacy policy|cookies|disclaimer|about us|faq/i.test(text) && text.length > 20) {
-          description = text;
-          return false;
-        }
+    // Check session cache
+    if (req.session.extractedBranding && req.session.extractedBranding.websiteURL === websiteURL) {
+      console.log("Using session cache for:", websiteURL);
+      return res.render("branding-social-details", {
+        ...req.session.extractedBranding,
+        isRegistered: false,
       });
     }
 
-    description = description || "No description available.";
-    let services = extractServices($) || "No services found.";
+    // Check database cache
+    const existingBusiness = await Business.findOne({ companyWebsite: websiteURL });
+    if (existingBusiness) {
+      console.log("Using database cache for:", websiteURL);
+      req.session.extractedBranding = {
+        companyName: existingBusiness.companyName,
+        description: existingBusiness.description,
+        services: existingBusiness.services,
+        targetAudience: existingBusiness.targetAudience || "Describe Your Target Audience",
+        focusService: existingBusiness.focusService || "Describe what service you want to focus on",
+        websiteURL,
+      };
+      return res.render("branding-social-details", {
+        ...req.session.extractedBranding,
+        isRegistered: true,
+      });
+    }
 
-    res.render("branding-social-details", { 
-      companyName, 
-      description, 
+    // Check in-memory cache
+    if (cache.has(websiteURL)) {
+      console.log("Using in-memory cache for:", websiteURL);
+      return res.render("branding-social-details", {
+        ...cache.get(websiteURL),
+        isRegistered: false,
+      });
+    }
+
+    // Query Perplexity API
+    console.log("Fetching data from Perplexity for:", websiteURL);
+
+    const prompt = `
+      Analyze the website at ${websiteURL} and provide:
+      1. Company Name
+      2. Description (50-100 words)
+      3. Services (comma-separated)
+      Use placeholders like "Unknown Company" if data is unavailable.
+    `;
+
+    const response = await perplexityApi.post('/chat/completions', {
+      model: 'mistral-7b-instruct', // Small, cost-effective model
+      messages: [
+        { role: 'system', content: 'Extract branding info concisely.' },
+        { role: 'user', content: prompt },
+      ],
+      max_tokens: 150, // Limit output to reduce costs
+      temperature: 0.5,
+    });
+
+    const perplexityResponse = response.data.choices[0].message.content.trim();
+    console.log("Perplexity Response:", perplexityResponse);
+
+    // Parse response
+    let companyName = "Unknown Company";
+    let description = "No description available.";
+    let services = "No services found.";
+
+    const lines = perplexityResponse.split('\n');
+    lines.forEach(line => {
+      if (line.startsWith('1. Company Name')) {
+        companyName = line.replace('1. Company Name', '').replace(':', '').trim() || "Unknown Company";
+      } else if (line.startsWith('2. Description')) {
+        description = line.replace('2. Description', '').replace(':', '').trim() || "No description available.";
+      } else if (line.startsWith('3. Services')) {
+        services = line.replace('3. Services', '').replace(':', '').trim() || "No services found.";
+      }
+    });
+
+    // Store in session and in-memory cache
+    const extractedData = {
+      companyName,
+      description,
       services,
-      targetAudience: "Describe Your Target Audience", // Default placeholder
+      targetAudience: "Describe Your Target Audience",
       focusService: "Describe what service you want to focus on",
-      isRegistered: false
+      websiteURL,
+    };
+
+    req.session.extractedBranding = extractedData;
+    cache.set(websiteURL, extractedData);
+
+    res.render("branding-social-details", {
+      ...extractedData,
+      isRegistered: false,
     });
   } catch (error) {
-    console.error("Error extracting website data:", error);
-    res.render("branding-social-details", { 
-      companyName: "Error", 
-      description: "No description available.", 
+    console.error("Error with Perplexity API:", error.response?.data || error.message);
+
+    // Fallback to basic URL parsing
+    const urlFallback = new URL(websiteURL);
+    const fallbackData = {
+      companyName: urlFallback.hostname.replace('www.', '').split('.')[0] || "Unknown Company",
+      description: "No description available due to extraction error.",
       services: "No services found.",
-      targetAudience: "No target audience found.",
-      focusService: "No focus service found",
-      isRegistered: false
+      targetAudience: "Describe Your Target Audience",
+      focusService: "Describe what service you want to focus on",
+      websiteURL,
+    };
+
+    req.session.extractedBranding = fallbackData;
+    res.render("branding-social-details", {
+      ...fallbackData,
+      isRegistered: false,
     });
   }
 });
 
-function extractServices($) {
-  let servicesList = [];
-  $("ul, ol").each((index, element) => {
-    $(element).find("li").each((i, li) => {
-      const text = $(li).text().trim();
-      if (/service|solution|specialize|offer|expertise|industries|products|what we do/i.test(text) && text.length < 100) {
-        servicesList.push(text);
-      }
-    });
-  });
-
-  if (servicesList.length === 0) {
-    $("p, div").each((index, element) => {
-      const text = $(element).text().trim();
-      if (/we offer|our services include|we provide|specializing in|we specialize/i.test(text) && text.length < 150) {
-        servicesList.push(text);
-      }
-    });
-  }
-
-  servicesList = [...new Set(servicesList)]
-    .filter(text => !/terms of service|privacy policy|about us|faq/i.test(text))
-    .slice(0, 5);
-
-  return servicesList.length > 0 ? servicesList.join(", ") : "No services found.";
-}
+// Clear in-memory cache every hour (optional)
+setInterval(() => cache.clear(), 60 * 60 * 1000);
 
 router.get("/generated-social", (req, res) => {
   if (!req.session || !req.session.generatedContent) {
