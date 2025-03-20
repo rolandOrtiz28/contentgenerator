@@ -15,6 +15,7 @@ const cors = require("cors"); // Add CORS
 
 const socialMediaRoute = require('./routes/socialMediaContent');
 const articleBlogRoute = require('./routes/articleBlogContent');
+const businessRoute = require('./routes/business');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -233,9 +234,18 @@ app.post("/select-branding", (req, res) => {
       res.json({ redirect: "/select-content" });
   }
 });
+
+// Serve static files (React build)
+app.use(express.static(path.join(__dirname, 'client', 'dist')));
+
 app.get("/select-content", (req, res) => res.json({ message: "Select content type" })); // Update to return JSON
 app.use('/social-media', socialMediaRoute);
 app.use('/blog-article', articleBlogRoute);
+app.use('/business', businessRoute);
+
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'client', 'dist', 'index.html'));
+});
 
 // Error Handling
 app.use((req, res) => res.status(404).json({ error: "Page not found" }));

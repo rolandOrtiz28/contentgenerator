@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const OpenAI = require("openai");
-const axios = require('axios'); // Added for Perplexity API
+const axios = require('axios');
 const Business = require('../models/Business');
 
 const openai = new OpenAI({
@@ -10,19 +10,20 @@ const openai = new OpenAI({
 
 // Initialize Perplexity API
 const perplexityApi = axios.create({
-  baseURL: 'https://api.perplexity.ai', // Adjust if needed
+  baseURL: 'https://api.perplexity.ai',
   headers: {
     'Authorization': `Bearer ${process.env.PERPLEXITY_API_KEY}`,
     'Content-Type': 'application/json',
   },
 });
 
-// Simple in-memory cache for Perplexity results (optional)
+// Simple in-memory cache for Perplexity results
 const cache = new Map();
 
+// Keep this for backward compatibility, but we'll update the frontend to use /businesses
 router.get("/branding-social", async (req, res) => {
   try {
-    const businesses = await Business.find({}, 'companyName');
+    const businesses = await Business.find({}, 'companyName description services focusService targetAudience brandTone socialMediaType hasWebsite companyWebsite');
     res.json({ businesses, error: null });
   } catch (error) {
     console.error("Error fetching businesses:", error);
@@ -30,93 +31,28 @@ router.get("/branding-social", async (req, res) => {
   }
 });
 
-router.post("/branding-social-details", async (req, res) => {
-  const { hasWebsite, companyWebsite, selectedBusiness, companyName, targetAudience, services, description, focusService, password } = req.body;
-
-  if (!selectedBusiness) {
-    req.session.businessDetails = null;
-    console.log("🔄 Session cleared for new business entry.");
+// New route for content details form
+router.get("/content-details", (req, res) => {
+  if (!req.session.tempBusinessDetails && !req.session.businessDetails) {
+    return res.status(400).json({ redirect: "/social-media/branding-social" });
   }
 
-  console.log("Before storing temp business details:", req.session);
-
-  if (selectedBusiness) {
-    try {
-      const business = await Business.findById(selectedBusiness);
-      if (!business) {
-        return res.render("branding-social", { 
-          businesses: await Business.find({}, 'companyName'), 
-          error: "Selected business not found." 
-        });
-      }
-
-      if (password) {
-        const isMatch = await business.comparePassword(password);
-        if (!isMatch) {
-          return res.render("branding-social", { 
-            businesses: await Business.find({}, 'companyName'), 
-            error: "Incorrect password for the selected business." 
-          });
-        }
-
-        req.session.businessDetails = business;
-        console.log("✅ Business details set in session:", business);
-        return res.json({
-          companyName: business.companyName,
-          description: business.description,
-          targetAudience: business.targetAudience,
-          services: business.services,
-          focusService: business.focusService,
-          isRegistered: true
-        });
-      } else {
-        return res.json({ redirect: `/social-media/business-password-prompt/${selectedBusiness}` });
-      }
-    } catch (error) {
-      console.error("❌ Error fetching selected business:", error);
-      return res.status(500).json({
-        error: "Error loading business details.",
-        businesses: await Business.find({}, 'companyName'),
-      });
-    }
-  }
-
-  req.session.tempBusinessDetails = {
-    companyName: companyName || "Unnamed Company",
-    description: description || "No description provided.",
-    targetAudience: targetAudience || "General audience",
-    services: services || "General services",
-    focusService: focusService || "All services",
-    socialMediaType: req.body.socialMediaType || "post",
-    brandTone: req.body.brandTone || "professional",
-    purpose: req.body.purpose || "Promote services",
-    topic: req.body.topic || "Default Topic", 
-    theme: req.body.theme || "Educational",
-    adDetails: req.body.adDetails || "No additional details"
-  };
-
-  console.log("After storing temp business details:", req.session);
-
-  if (hasWebsite === "yes" && companyWebsite) {
-    console.log("🔄 Redirecting to extract-branding with URL:", companyWebsite);
-    return res.json({ redirect: `/social-media/extract-branding?website=${encodeURIComponent(companyWebsite)}` });
-  } else if (hasWebsite === "no") {
-    return res.json({
-      companyName: companyName || "",
-      targetAudience: targetAudience || "",
-      services: services || "",
-      description: description || "",
-      focusService: focusService || "",
-      isRegistered: false
-    });
-  } else {
-    return res.status(400).json({
-      error: "Please select whether you have a website.",
-      businesses: await Business.find({}, 'companyName'),
-    });
-  }
+  const businessDetails = req.session.businessDetails || req.session.tempBusinessDetails;
+  res.json({
+    business: {
+      companyName: businessDetails.companyName,
+      description: businessDetails.description,
+      services: businessDetails.services,
+      focusService: businessDetails.focusService,
+      targetAudience: businessDetails.targetAudience,
+      brandTone: businessDetails.brandTone,
+      socialMediaType: businessDetails.socialMediaType,
+    },
+    error: null,
+  });
 });
 
+// Handle business selection or new details
 router.post("/generate-content-social", async (req, res) => {
   const { 
     companyName, 
@@ -126,14 +62,14 @@ router.post("/generate-content-social", async (req, res) => {
     focusService, 
     socialMediaType,   
     brandTone,
-    customBrandTone, 
     purpose, 
     topic, 
     theme, 
+    hashtags,
+    cta,
     adDetails 
   } = req.body;
 
-  const finalBrandTone = brandTone === "custom" && customBrandTone ? customBrandTone : brandTone;
   let businessData;
 
   console.log("Received form data for generate-content-social:", {
@@ -144,10 +80,11 @@ router.post("/generate-content-social", async (req, res) => {
     focusService,
     socialMediaType,
     brandTone,
-    customBrandTone,
     purpose,
     topic,
     theme,
+    hashtags,
+    cta,
     adDetails
   });
 
@@ -161,10 +98,12 @@ router.post("/generate-content-social", async (req, res) => {
       services: req.session.businessDetails.services,
       focusService: focusService || req.session.businessDetails.focusService,
       socialMediaType,
-      brandTone: finalBrandTone,
+      brandTone,
       purpose,
       topic,
       theme,
+      hashtags,
+      cta,
       adDetails
     };
     console.log("Using registered business details:", req.session.businessDetails);
@@ -176,10 +115,12 @@ router.post("/generate-content-social", async (req, res) => {
       services: services || "General services",
       focusService: focusService || "All services",
       socialMediaType: socialMediaType || "post",
-      brandTone: finalBrandTone || "professional",
+      brandTone: brandTone || "professional",
       purpose: purpose || "Promote services",
       topic: topic || "No description provided.",
       theme: theme || "Educational",
+      hashtags: hashtags || [],
+      cta: cta || "Follow us for more!",
       adDetails: adDetails || "No additional details"
     };
   
@@ -194,7 +135,7 @@ router.post("/generate-content-social", async (req, res) => {
 });
 
 async function generateSocialMediaContent(req, res, data) {
-  const { companyName, description, targetAudience, services, focusService, socialMediaType, brandTone, purpose, topic, theme, adDetails } = data;
+  const { companyName, description, targetAudience, services, focusService, socialMediaType, brandTone, purpose, topic, theme, hashtags, cta, adDetails } = data;
 
   if (!data || Object.keys(data).length === 0) {
     console.error("❌ Error: `data` is missing or empty!");
@@ -258,6 +199,8 @@ Generate a Social Media ${socialMediaType === "reel" || socialMediaType === "sto
 - Target Audience: ${targetAudience || "General audience"}
 - Purpose: ${purpose || "Promote services"}
 - Theme: ${theme || "Generic theme"}
+- Hashtags: ${hashtags.join(', ')}
+- CTA: ${cta}
 - Details: ${adDetails || "No additional details"}
 
 **FORMAT EXACTLY LIKE THIS:**
@@ -270,7 +213,7 @@ Generate a Social Media ${socialMediaType === "reel" || socialMediaType === "sto
 **Video Concept:** [2-3 sentences describing the video idea based on topic/purpose]  
 **Caption:** [Ensure this follows the theme, e.g., tips list, educational insights, engaging questions, etc.]  
 **Hashtags:** [4-5 relevant hashtags]  
-**CTA Options:** [1] [CTA 1] | [2] [CTA 2]  
+**CTA:** ${cta}  
 **Video Script & Structure:**  
 - **Scene 1:** [Action for scene 1]  
 - **Scene 2:** [Action for scene 2]  
@@ -292,7 +235,7 @@ Generate a Social Media ${socialMediaType === "reel" || socialMediaType === "sto
 **Caption:** [Catchy caption tied to theme]  
 **Hashtags:** [4-5 relevant hashtags]
 **Main Content:** [Ensure this follows the theme, e.g., tips list, educational insights, engaging questions, etc.]  
-**CTA Options:** [1] [CTA 1] | [2] [CTA 2]  
+**CTA:** ${cta}  
 **Texts on Poster:** [Short text for poster]  
 **Assets:** [Assets like images, icons, etc.]  
 ---
@@ -334,8 +277,8 @@ Generate a Social Media ${socialMediaType === "reel" || socialMediaType === "sto
       services: services || "General services",
       targetAudience: targetAudience || "General Audience",
       caption: generatedContent.match(/\*\*Caption:\*\* (.+)/)?.[1] || "Contact us for amazing content!",
-      hashtags: generatedContent.match(/\*\*Hashtags:\*\* (.+)/)?.[1] || "#default",
-      cta: generatedContent.match(/\*\*CTA(?: Options)?:\*\* (.+)/)?.[1] || "[1] DM us | [2] Visit us",
+      hashtags: generatedContent.match(/\*\*Hashtags:\*\* (.+)/)?.[1] || hashtags.join(', '),
+      cta: generatedContent.match(/\*\*CTA(?: Options)?:\*\* (.+)/)?.[1] || cta,
       mainContent: generatedContent.match(/\*\*Main Content:\*\*([\s\S]+?)\n\*\*/)?.[1]?.trim() || "No content provided.",
       assets: generatedContent.match(/\*\*Assets:\*\* (.+)/)?.[1] || "Generic assets",
       ...(socialMediaType === "reel" || socialMediaType === "story" ? {
@@ -358,23 +301,16 @@ Generate a Social Media ${socialMediaType === "reel" || socialMediaType === "sto
       tempBusinessDetails: req.session.tempBusinessDetails
     });
 
-    if (req.session.tempBusinessDetails) {
-      console.log("Redirecting to save-details-prompt for unregistered business");
-      return res.json({
-        redirect: "/social-media/save-details-prompt", // Return the redirect URL as part of the JSON response
-      });
-    }
-
     res.json(extractedContent);
   } catch (error) {
     console.error("❌ Error generating AI content:", error);
     res.status(500).send("Error generating content. Please try again or contact support.");
   }
-}
+};
 
 router.get("/save-details-prompt", (req, res) => {
   if (!req.session.tempBusinessDetails) {
-    return res.json({ redirect: "/social-media/branding-social" }); // Return the redirect URL as part of the response
+    return res.json({ redirect: "/social-media/branding-social" });
   }
   res.json({
     business: req.session.tempBusinessDetails,
@@ -382,14 +318,17 @@ router.get("/save-details-prompt", (req, res) => {
   });
 });
 
-
 router.post("/save-details", async (req, res) => {
   const { saveChoice, password } = req.body;
 
   if (saveChoice === "yes" && req.session.tempBusinessDetails && password) {
     try {
       const businessData = {
-        ...req.session.tempBusinessDetails,
+        companyName: req.session.tempBusinessDetails.companyName,
+        description: req.session.tempBusinessDetails.description,
+        targetAudience: req.session.tempBusinessDetails.targetAudience,
+        services: req.session.tempBusinessDetails.services,
+        focusService: req.session.tempBusinessDetails.focusService,
         password
       };
       
@@ -398,7 +337,7 @@ router.post("/save-details", async (req, res) => {
       req.session.businessDetails = business;
       delete req.session.tempBusinessDetails;
       
-      return res.json({ redirect: "/social-media/generated-social" }); // Return a redirect in the response
+      return res.json({ redirect: "/social-media/content-details" }); // Redirect to content details form
     } catch (error) {
       console.error("Error saving business:", error);
       return res.json({
@@ -407,8 +346,7 @@ router.post("/save-details", async (req, res) => {
       });
     }
   } else if (saveChoice === "no") {
-    delete req.session.tempBusinessDetails;
-    return res.json({ redirect: "/social-media/generated-social" }); // Return the redirect URL as part of the response
+    return res.json({ redirect: "/social-media/content-details" }); // Redirect to content details form
   } else {
     return res.json({
       business: req.session.tempBusinessDetails,
@@ -416,7 +354,6 @@ router.post("/save-details", async (req, res) => {
     });
   }
 });
-
 
 // Updated /extract-branding route using Perplexity with cost-saving measures
 router.get("/extract-branding", async (req, res) => {
@@ -535,7 +472,6 @@ router.get("/extract-branding", async (req, res) => {
   }
 });
 
-
 // Clear in-memory cache every hour (optional)
 setInterval(() => cache.clear(), 60 * 60 * 1000);
 
@@ -551,9 +487,8 @@ router.get("/generated-social", (req, res) => {
     socialMediaType: req.session.generatedContent.socialMediaType || "post"
   };
 
-  return res.json(content); // Send the generated content as a JSON response
+  return res.json(content);
 });
-
 
 router.get("/generate-new-content", (req, res) => {
   if (req.session.businessDetails) {
@@ -575,9 +510,8 @@ router.get("/generate-new-content", (req, res) => {
       isRegistered: false,
     });
   } else {
-    return res.json({ redirect: "/social-media/branding-social" }); // Return redirect URL in response
+    return res.json({ redirect: "/social-media/branding-social" });
   }
 });
-
 
 module.exports = router;

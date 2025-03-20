@@ -31,89 +31,6 @@ router.get("/branding-article", async (req, res) => {
   }
 });
 
-// Step 2: Handle business selection or new details with website extraction
-router.post("/branding-article-details", async (req, res) => {
-  const { hasWebsite, companyWebsite, selectedBusiness, companyName, audience, brandTone, keyword, password } = req.body;
-
-  if (!selectedBusiness) {
-    req.session.businessDetails = null;
-    console.log("🔄 Session cleared for new business entry.");
-  }
-
-  console.log("Before storing temp business details:", req.session);
-
-  if (selectedBusiness) {
-    try {
-      const business = await Business.findById(selectedBusiness);
-      if (!business) {
-        return res.status(404).json({
-          error: "Selected business not found.",
-          businesses: await Business.find({}, 'companyName'),
-        });
-      }
-
-      if (password) {
-        const isMatch = await business.comparePassword(password);
-        if (!isMatch) {
-          return res.status(401).json({
-            error: "Incorrect password for the selected business.",
-            businesses: await Business.find({}, 'companyName'),
-          });
-        }
-
-        req.session.businessDetails = business;
-        return res.json({
-          companyName: business.companyName,
-          description: business.description || "No description provided.",
-          services: business.services || "General services",
-          audience: business.targetAudience || "General audience",
-          brandTone: business.brandTone || "professional",
-          keyword: keyword || "",
-          isRegistered: true,
-          error: null,
-        });
-      } else {
-        return res.json({ redirect: `/blog-article/business-password-prompt/${selectedBusiness}` });
-      }
-    } catch (error) {
-      console.error("❌ Error fetching selected business:", error);
-      return res.status(500).json({
-        error: "Error loading business details.",
-        businesses: await Business.find({}, 'companyName'),
-      });
-    }
-  }
-
-  req.session.tempBusinessDetails = {
-    companyName: companyName || "Unnamed Company",
-    description: "No description provided.",
-    services: "General services",
-    audience: audience || "General audience",
-    brandTone: brandTone || "professional",
-    keyword: keyword || "SEO optimization",
-  };
-
-  if (hasWebsite === "yes" && companyWebsite) {
-    return res.json({ redirect: `/blog-article/extract-branding-article?website=${encodeURIComponent(companyWebsite)}` });
-  } else if (hasWebsite === "no") {
-    return res.json({
-      companyName: companyName || "",
-      description: "",
-      services: "",
-      audience: audience || "",
-      brandTone: brandTone || "",
-      keyword: keyword || "",
-      isRegistered: false,
-      error: null,
-    });
-  } else {
-    return res.status(400).json({
-      error: "Please select whether you have a website.",
-      businesses: await Business.find({}, 'companyName'),
-    });
-  }
-});
-
 // Step 3: Extract branding details from website
 router.get("/extract-branding-article", async (req, res) => {
   const websiteURL = req.query.website;
@@ -123,7 +40,7 @@ router.get("/extract-branding-article", async (req, res) => {
       companyName: req.session.tempBusinessDetails?.companyName || "",
       description: "",
       services: "",
-      audience: req.session.tempBusinessDetails?.audience || "",
+      targetAudience: req.session.tempBusinessDetails?.targetAudience || "", // Updated to targetAudience
       brandTone: req.session.tempBusinessDetails?.brandTone || "",
       keyword: req.session.tempBusinessDetails?.keyword || "",
       isRegistered: false,
@@ -136,7 +53,7 @@ router.get("/extract-branding-article", async (req, res) => {
     if (req.session.extractedBranding && req.session.extractedBranding.websiteURL === websiteURL) {
       return res.json({
         ...req.session.extractedBranding,
-        audience: req.session.tempBusinessDetails?.audience || "",
+        targetAudience: req.session.tempBusinessDetails?.targetAudience || "", // Updated to targetAudience
         brandTone: req.session.tempBusinessDetails?.brandTone || "",
         keyword: req.session.tempBusinessDetails?.keyword || "",
         isRegistered: false,
@@ -155,7 +72,7 @@ router.get("/extract-branding-article", async (req, res) => {
       };
       return res.json({
         ...req.session.extractedBranding,
-        audience: req.session.tempBusinessDetails?.audience || "",
+        targetAudience: req.session.tempBusinessDetails?.targetAudience || "", // Updated to targetAudience
         brandTone: req.session.tempBusinessDetails?.brandTone || "",
         keyword: req.session.tempBusinessDetails?.keyword || "",
         isRegistered: true,
@@ -168,7 +85,7 @@ router.get("/extract-branding-article", async (req, res) => {
       req.session.extractedBranding = cache.get(websiteURL);
       return res.json({
         ...req.session.extractedBranding,
-        audience: req.session.tempBusinessDetails?.audience || "",
+        targetAudience: req.session.tempBusinessDetails?.targetAudience || "", // Updated to targetAudience
         brandTone: req.session.tempBusinessDetails?.brandTone || "",
         keyword: req.session.tempBusinessDetails?.keyword || "",
         isRegistered: false,
@@ -220,7 +137,7 @@ router.get("/extract-branding-article", async (req, res) => {
       companyName,
       description,
       services,
-      audience: req.session.tempBusinessDetails?.audience || "",
+      targetAudience: req.session.tempBusinessDetails?.targetAudience || "", // Updated to targetAudience
       brandTone: req.session.tempBusinessDetails?.brandTone || "",
       keyword: req.session.tempBusinessDetails?.keyword || "",
       isRegistered: false,
@@ -237,7 +154,7 @@ router.get("/extract-branding-article", async (req, res) => {
     };
     res.status(500).json({
       ...req.session.extractedBranding,
-      audience: req.session.tempBusinessDetails?.audience || "",
+      targetAudience: req.session.tempBusinessDetails?.targetAudience || "", // Updated to targetAudience
       brandTone: req.session.tempBusinessDetails?.brandTone || "",
       keyword: req.session.tempBusinessDetails?.keyword || "",
       isRegistered: false,
@@ -246,26 +163,53 @@ router.get("/extract-branding-article", async (req, res) => {
   }
 });
 
-// Step 4: Generate the SEO-optimized article
+// Step 4: New route for content details form
+router.get("/content-details", (req, res) => {
+  if (!req.session.tempBusinessDetails && !req.session.businessDetails) {
+    return res.status(400).json({ redirect: "/blog-article/branding-article" });
+  }
+
+  const businessDetails = req.session.businessDetails || req.session.tempBusinessDetails;
+  res.json({
+    business: {
+      companyName: businessDetails.companyName,
+      description: businessDetails.description,
+      services: businessDetails.services,
+      focusService: businessDetails.focusService,
+      targetAudience: businessDetails.targetAudience,
+      brandTone: businessDetails.brandTone,
+      keyword: businessDetails.keyword,
+    },
+    error: null,
+  });
+});
+
+// Step 5: Generate the SEO-optimized article
 router.post("/generate-content-article", async (req, res) => {
-  const { companyName, description, services, audience, brandTone, keyword } = req.body;
+  const { companyName, description, services, targetAudience, brandTone, keyword, secondaryKeywords, articleLength, keyPoints, cta } = req.body;
 
   let finalCompanyName = companyName || req.session.businessDetails?.companyName || req.session.tempBusinessDetails?.companyName || "Unknown Company";
   let finalDescription = description || req.session.extractedBranding?.description || req.session.businessDetails?.description || "A company offering digital solutions.";
   let finalServices = services || req.session.extractedBranding?.services || req.session.businessDetails?.services || "General digital services";
-  let finalAudience = audience || req.session.tempBusinessDetails?.audience || req.session.businessDetails?.targetAudience || "General audience";
+  let finalTargetAudience = targetAudience || req.session.tempBusinessDetails?.targetAudience || req.session.businessDetails?.targetAudience || "General audience";
   let finalBrandTone = brandTone || req.session.tempBusinessDetails?.brandTone || req.session.businessDetails?.brandTone || "professional";
   let finalKeyword = keyword || req.session.tempBusinessDetails?.keyword || "SEO optimization";
+  let finalSecondaryKeywords = secondaryKeywords || [];
+  let finalArticleLength = articleLength || "1500-2000 words";
+  let finalKeyPoints = keyPoints || [];
+  let finalCta = cta || "Contact us for more information!";
 
   // Step 1: Generate an outline
   const outlinePrompt = `
     Create a detailed outline for an SEO-optimized blog article based on:
     - **Company Name:** ${finalCompanyName}
-    - **Target Audience:** ${finalAudience}
+    - **Target Audience:** ${finalTargetAudience}
     - **Brand Tone:** ${finalBrandTone}
     - **Primary SEO Keyword:** ${finalKeyword}
+    - **Secondary Keywords:** ${finalSecondaryKeywords.join(', ')}
     - **Description:** ${finalDescription}
     - **Services:** ${finalServices}
+    - **Key Points to Cover:** ${finalKeyPoints.join(', ')}
 
     Follow Ahrefs SEO guidelines, targeting middle-of-the-funnel readers. Include:
     - A compelling title with the keyword.
@@ -275,7 +219,7 @@ router.post("/generate-content-article", async (req, res) => {
     - A promotional section with services and a bundle discount.
     - A conclusion.
     - 3-5 FAQs.
-    - A CTA.
+    - A CTA: "${finalCta}"
     - 2-3 internal linking suggestions.
     - Schema markup (Article, FAQPage).
 
@@ -319,10 +263,10 @@ router.post("/generate-content-article", async (req, res) => {
 
       - Expand each section to 200-300 words with varied sentences.
       - Use ${finalKeyword} 5-7 times naturally.
-      - Include semantic keywords (e.g., "search engine ranking", "online visibility").
+      - Include semantic keywords: ${finalSecondaryKeywords.join(', ')}.
       - Add a personal anecdote or quote in one section.
       - In the promotional section, highlight ${finalServices} with a bundle discount (e.g., "Web Development + Graphic Design: Save 10%").
-      - Target 1,500-2,000 words.
+      - Target ${finalArticleLength}.
 
       Format:
       - **Title:**
@@ -366,11 +310,156 @@ router.post("/generate-content-article", async (req, res) => {
       .replace(/It is important to note/g, "Here’s something worth mentioning")
       .replace(/Furthermore/g, "Plus");
 
-    req.session.generatedContent = humanizedArticle;
+    // Step 3: Parse the article into a structured object
+    const lines = humanizedArticle.split('\n').filter(line => line.trim());
+    let parsedContent = {
+      title: '',
+      metaDescription: '',
+      url: '',
+      introduction: '',
+      sections: [],
+      keyTakeaways: [],
+      promotionalSection: '',
+      conclusion: '',
+      faqs: [],
+      cta: '',
+      internalLinks: [],
+      schemaMarkup: '',
+    };
 
-    if (req.session.tempBusinessDetails) {
-      return res.json({ redirect: "/blog-article/save-details-prompt" });
+    let currentSection = null;
+    let currentFaq = null;
+    let inIntroduction = false;
+    let inKeyTakeaways = false;
+    let inPromotionalSection = false;
+    let inConclusion = false;
+    let inFaqs = false;
+    let inInternalLinks = false;
+    let inSchemaMarkup = false;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+
+      // Parse Title
+      if (line.startsWith('**Title:**')) {
+        parsedContent.title = line.replace('**Title:**', '').trim();
+      }
+      // Parse Meta Description
+      else if (line.startsWith('**Meta Description:**')) {
+        parsedContent.metaDescription = line.replace('**Meta Description:**', '').trim();
+      }
+      // Parse URL
+      else if (line.startsWith('**URL:**')) {
+        parsedContent.url = line.replace('**URL:**', '').trim();
+      }
+      // Parse Introduction
+      else if (line.startsWith('**Introduction:**')) {
+        inIntroduction = true;
+        parsedContent.introduction = '';
+      }
+      else if (inIntroduction && !line.startsWith('**[')) {
+        parsedContent.introduction += line + '\n';
+      }
+      // Parse Sections
+      else if (line.startsWith('**[') && finalKeyPoints.some(point => line.includes(point))) {
+        inIntroduction = false;
+        if (currentSection) parsedContent.sections.push(currentSection);
+        currentSection = {
+          heading: line.replace('**', '').replace(':', '').replace('[', '').replace(']', ''),
+          content: '',
+        };
+      }
+      else if (currentSection && !line.startsWith('**Key Takeaways:**') && !line.startsWith('**Promotional Section:**') && !line.startsWith('**Conclusion:**') && !line.startsWith('**FAQs:**')) {
+        currentSection.content += line + '\n';
+      }
+      // Parse Key Takeaways
+      else if (line.startsWith('**Key Takeaways:**')) {
+        if (currentSection) parsedContent.sections.push(currentSection);
+        currentSection = null;
+        inKeyTakeaways = true;
+      }
+      else if (inKeyTakeaways && line.startsWith('- ')) {
+        parsedContent.keyTakeaways.push(line.replace('- ', '').trim());
+      }
+      // Parse Promotional Section
+      else if (line.startsWith('**Promotional Section:**')) {
+        inKeyTakeaways = false;
+        inPromotionalSection = true;
+        parsedContent.promotionalSection = '';
+      }
+      else if (inPromotionalSection && !line.startsWith('**Conclusion:**')) {
+        parsedContent.promotionalSection += line + '\n';
+      }
+      // Parse Conclusion
+      else if (line.startsWith('**Conclusion:**')) {
+        inPromotionalSection = false;
+        inConclusion = true;
+        parsedContent.conclusion = '';
+      }
+      else if (inConclusion && !line.startsWith('**FAQs:**')) {
+        parsedContent.conclusion += line + '\n';
+      }
+      // Parse FAQs
+      else if (line.startsWith('**FAQs:**')) {
+        inConclusion = false;
+        inFaqs = true;
+      }
+      else if (inFaqs && line.startsWith('**[') && line.includes(']:')) {
+        if (currentFaq) parsedContent.faqs.push(currentFaq);
+        currentFaq = {
+          question: line.replace('**', '').replace(':', '').replace('[', '').replace(']', ''),
+          answer: '',
+        };
+      }
+      else if (currentFaq && !line.startsWith('**CTA:**')) {
+        currentFaq.answer += line + '\n';
+      }
+      // Parse CTA
+      else if (line.startsWith('**CTA:**')) {
+        inFaqs = false;
+        if (currentFaq) parsedContent.faqs.push(currentFaq);
+        currentFaq = null;
+        parsedContent.cta = line.replace('**CTA:**', '').trim();
+      }
+      // Parse Internal Links
+      else if (line.startsWith('**Internal Links:**')) {
+        inInternalLinks = true;
+      }
+      else if (inInternalLinks && line.startsWith('- ')) {
+        parsedContent.internalLinks.push(line.replace('- ', '').trim());
+      }
+      // Parse Schema Markup
+      else if (line.startsWith('**Schema Markup:**')) {
+        inInternalLinks = false;
+        inSchemaMarkup = true;
+        parsedContent.schemaMarkup = '';
+      }
+      else if (inSchemaMarkup) {
+        parsedContent.schemaMarkup += line + '\n';
+      }
     }
+
+    // Push the last section and FAQ if they exist
+    if (currentSection) parsedContent.sections.push(currentSection);
+    if (currentFaq) parsedContent.faqs.push(currentFaq);
+
+    // Trim all string fields
+    parsedContent.introduction = parsedContent.introduction.trim();
+    parsedContent.promotionalSection = parsedContent.promotionalSection.trim();
+    parsedContent.conclusion = parsedContent.conclusion.trim();
+    parsedContent.schemaMarkup = parsedContent.schemaMarkup.trim();
+    parsedContent.sections = parsedContent.sections.map(section => ({
+      ...section,
+      content: section.content.trim(),
+    }));
+    parsedContent.faqs = parsedContent.faqs.map(faq => ({
+      ...faq,
+      answer: faq.answer.trim(),
+    }));
+
+    // Store the parsed content in the session
+    req.session.generatedContent = parsedContent;
+    console.log('Parsed content stored in session:', req.session.generatedContent);
 
     res.json({ redirect: "/blog-article/generated-article" });
   } catch (error) {
@@ -379,7 +468,7 @@ router.post("/generate-content-article", async (req, res) => {
   }
 });
 
-// Step 5: Save business details prompt
+// Step 6: Save business details prompt
 router.get("/save-details-prompt", (req, res) => {
   if (!req.session.tempBusinessDetails) {
     return res.status(400).json({ redirect: "/blog-article/branding-article" });
@@ -390,21 +479,25 @@ router.get("/save-details-prompt", (req, res) => {
   });
 });
 
-// Step 6: Handle saving
+// Step 7: Handle saving
 router.post("/save-details", async (req, res) => {
   const { saveChoice, password } = req.body;
 
   if (saveChoice === "yes" && req.session.tempBusinessDetails && password) {
     try {
       const businessData = {
-        ...req.session.tempBusinessDetails,
+        companyName: req.session.tempBusinessDetails.companyName,
+        description: req.session.tempBusinessDetails.description,
+        targetAudience: req.session.tempBusinessDetails.targetAudience,
+        services: req.session.tempBusinessDetails.services,
+        focusService: req.session.tempBusinessDetails.focusService,
         password,
       };
       const business = new Business(businessData);
       await business.save();
       req.session.businessDetails = business;
       delete req.session.tempBusinessDetails;
-      res.json({ redirect: "/blog-article/generated-article" });
+      res.json({ redirect: "/blog-article/content-details" }); // Redirect to content details form
     } catch (error) {
       console.error("Error saving business:", error);
       res.status(500).json({
@@ -413,8 +506,7 @@ router.post("/save-details", async (req, res) => {
       });
     }
   } else if (saveChoice === "no") {
-    delete req.session.tempBusinessDetails;
-    res.json({ redirect: "/blog-article/generated-article" });
+    res.json({ redirect: "/blog-article/content-details" }); // Redirect to content details form
   } else {
     res.status(400).json({
       business: req.session.tempBusinessDetails,
@@ -423,22 +515,27 @@ router.post("/save-details", async (req, res) => {
   }
 });
 
-// Step 7: Display generated article
+// Step 8: Display generated article
 router.get("/generated-article", (req, res) => {
-  if (!req.session?.generatedContent) {
-    return res.status(400).json({ error: "No content available. Generate an article first." });
+  console.log('Fetching generated content from session:', req.session.generatedContent);
+  if (!req.session.generatedContent) {
+    return res.status(400).json({ redirect: "/blog-article/branding-article" });
   }
-  res.json({ content: req.session.generatedContent });
+
+  res.json({
+    content: req.session.generatedContent,
+    error: null,
+  });
 });
 
-// Step 8: Generate new content
+// Step 9: Generate new content
 router.get("/generate-new-content", (req, res) => {
   if (req.session.businessDetails) {
     return res.json({
       companyName: req.session.businessDetails.companyName,
       description: req.session.businessDetails.description || "",
       services: req.session.businessDetails.services || "",
-      audience: req.session.businessDetails.targetAudience || "",
+      targetAudience: req.session.businessDetails.targetAudience || "", // Updated to targetAudience
       brandTone: req.session.businessDetails.brandTone || "",
       keyword: "",
       isRegistered: true,
@@ -449,7 +546,7 @@ router.get("/generate-new-content", (req, res) => {
       companyName: req.session.tempBusinessDetails.companyName,
       description: req.session.tempBusinessDetails.description || "",
       services: req.session.tempBusinessDetails.services || "",
-      audience: req.session.tempBusinessDetails.audience || "",
+      targetAudience: req.session.tempBusinessDetails.targetAudience || "", // Updated to targetAudience
       brandTone: req.session.tempBusinessDetails.brandTone || "",
       keyword: req.session.tempBusinessDetails.keyword || "",
       isRegistered: false,
