@@ -23,10 +23,10 @@ const cache = new Map();
 router.get("/branding-social", async (req, res) => {
   try {
     const businesses = await Business.find({}, 'companyName');
-    res.render("branding-social", { businesses, error: null });
+    res.json({ businesses, error: null });
   } catch (error) {
     console.error("Error fetching businesses:", error);
-    res.render("branding-social", { businesses: [], error: "Failed to load businesses." });
+    res.status(500).json({ businesses: [], error: "Failed to load businesses." });
   }
 });
 
@@ -61,7 +61,7 @@ router.post("/branding-social-details", async (req, res) => {
 
         req.session.businessDetails = business;
         console.log("✅ Business details set in session:", business);
-        return res.render("branding-social-details", {
+        return res.json({
           companyName: business.companyName,
           description: business.description,
           targetAudience: business.targetAudience,
@@ -70,16 +70,13 @@ router.post("/branding-social-details", async (req, res) => {
           isRegistered: true
         });
       } else {
-        return res.render("business-password-prompt", { 
-          businessId: selectedBusiness,
-          error: null
-        });
+        return res.json({ redirect: `/social-media/business-password-prompt/${selectedBusiness}` });
       }
     } catch (error) {
       console.error("❌ Error fetching selected business:", error);
-      return res.render("branding-social", { 
-        businesses: await Business.find({}, 'companyName'), 
-        error: "Error loading business details." 
+      return res.status(500).json({
+        error: "Error loading business details.",
+        businesses: await Business.find({}, 'companyName'),
       });
     }
   }
@@ -102,20 +99,20 @@ router.post("/branding-social-details", async (req, res) => {
 
   if (hasWebsite === "yes" && companyWebsite) {
     console.log("🔄 Redirecting to extract-branding with URL:", companyWebsite);
-    return res.redirect(`/social-media/extract-branding?website=${encodeURIComponent(companyWebsite)}`);
+    return res.json({ redirect: `/social-media/extract-branding?website=${encodeURIComponent(companyWebsite)}` });
   } else if (hasWebsite === "no") {
-    res.render("branding-social-details", { 
-      companyName: companyName || "", 
-      targetAudience: targetAudience || "", 
-      services: services || "", 
-      description: description || "", 
-      focusService: focusService || "", 
-      isRegistered: false 
+    return res.json({
+      companyName: companyName || "",
+      targetAudience: targetAudience || "",
+      services: services || "",
+      description: description || "",
+      focusService: focusService || "",
+      isRegistered: false
     });
   } else {
-    res.render("branding-social", { 
-      businesses: await Business.find({}, 'companyName'), 
-      error: "Please select whether you have a website." 
+    return res.status(400).json({
+      error: "Please select whether you have a website.",
+      businesses: await Business.find({}, 'companyName'),
     });
   }
 });
@@ -363,10 +360,12 @@ Generate a Social Media ${socialMediaType === "reel" || socialMediaType === "sto
 
     if (req.session.tempBusinessDetails) {
       console.log("Redirecting to save-details-prompt for unregistered business");
-      return res.redirect("/social-media/save-details-prompt");
+      return res.json({
+        redirect: "/social-media/save-details-prompt", // Return the redirect URL as part of the JSON response
+      });
     }
 
-    res.redirect("/social-media/generated-social");
+    res.json(extractedContent);
   } catch (error) {
     console.error("❌ Error generating AI content:", error);
     res.status(500).send("Error generating content. Please try again or contact support.");
@@ -375,13 +374,14 @@ Generate a Social Media ${socialMediaType === "reel" || socialMediaType === "sto
 
 router.get("/save-details-prompt", (req, res) => {
   if (!req.session.tempBusinessDetails) {
-    return res.redirect("/social-media/branding-social");
+    return res.json({ redirect: "/social-media/branding-social" }); // Return the redirect URL as part of the response
   }
-  res.render("save-details-prompt", { 
+  res.json({
     business: req.session.tempBusinessDetails,
-    error: null 
+    error: null
   });
 });
+
 
 router.post("/save-details", async (req, res) => {
   const { saveChoice, password } = req.body;
@@ -397,31 +397,35 @@ router.post("/save-details", async (req, res) => {
       await business.save();
       req.session.businessDetails = business;
       delete req.session.tempBusinessDetails;
-      res.redirect("/social-media/generated-social");
+      
+      return res.json({ redirect: "/social-media/generated-social" }); // Return a redirect in the response
     } catch (error) {
       console.error("Error saving business:", error);
-      res.render("save-details-prompt", { 
-        business: req.session.tempBusinessDetails, 
-        error: "Failed to save business details." 
+      return res.json({
+        business: req.session.tempBusinessDetails,
+        error: "Failed to save business details."
       });
     }
   } else if (saveChoice === "no") {
     delete req.session.tempBusinessDetails;
-    res.redirect("/social-media/generated-social");
+    return res.json({ redirect: "/social-media/generated-social" }); // Return the redirect URL as part of the response
   } else {
-    res.render("save-details-prompt", { 
-      business: req.session.tempBusinessDetails, 
-      error: "Please provide a password to save your details." 
+    return res.json({
+      business: req.session.tempBusinessDetails,
+      error: "Please provide a password to save your details."
     });
   }
 });
+
 
 // Updated /extract-branding route using Perplexity with cost-saving measures
 router.get("/extract-branding", async (req, res) => {
   const websiteURL = req.query.website;
 
   if (!websiteURL) {
-    return res.status(400).send("Website URL is required.");
+    return res.status(400).json({
+      error: "Website URL is required.",
+    });
   }
 
   try {
@@ -429,8 +433,7 @@ router.get("/extract-branding", async (req, res) => {
 
     // Check session cache
     if (req.session.extractedBranding && req.session.extractedBranding.websiteURL === websiteURL) {
-      console.log("Using session cache for:", websiteURL);
-      return res.render("branding-social-details", {
+      return res.json({
         ...req.session.extractedBranding,
         isRegistered: false,
       });
@@ -439,7 +442,6 @@ router.get("/extract-branding", async (req, res) => {
     // Check database cache
     const existingBusiness = await Business.findOne({ companyWebsite: websiteURL });
     if (existingBusiness) {
-      console.log("Using database cache for:", websiteURL);
       req.session.extractedBranding = {
         companyName: existingBusiness.companyName,
         description: existingBusiness.description,
@@ -448,7 +450,7 @@ router.get("/extract-branding", async (req, res) => {
         focusService: existingBusiness.focusService || "Describe what service you want to focus on",
         websiteURL,
       };
-      return res.render("branding-social-details", {
+      return res.json({
         ...req.session.extractedBranding,
         isRegistered: true,
       });
@@ -456,8 +458,7 @@ router.get("/extract-branding", async (req, res) => {
 
     // Check in-memory cache
     if (cache.has(websiteURL)) {
-      console.log("Using in-memory cache for:", websiteURL);
-      return res.render("branding-social-details", {
+      return res.json({
         ...cache.get(websiteURL),
         isRegistered: false,
       });
@@ -475,19 +476,18 @@ router.get("/extract-branding", async (req, res) => {
     `;
 
     const response = await perplexityApi.post('/chat/completions', {
-      model: 'mistral-7b-instruct', // Small, cost-effective model
+      model: 'mistral-7b-instruct',
       messages: [
         { role: 'system', content: 'Extract branding info concisely.' },
         { role: 'user', content: prompt },
       ],
-      max_tokens: 150, // Limit output to reduce costs
+      max_tokens: 150,
       temperature: 0.5,
     });
 
     const perplexityResponse = response.data.choices[0].message.content.trim();
     console.log("Perplexity Response:", perplexityResponse);
 
-    // Parse response
     let companyName = "Unknown Company";
     let description = "No description available.";
     let services = "No services found.";
@@ -503,27 +503,20 @@ router.get("/extract-branding", async (req, res) => {
       }
     });
 
-    // Store in session and in-memory cache
-    const extractedData = {
+    req.session.extractedBranding = { companyName, description, services, websiteURL };
+    cache.set(websiteURL, req.session.extractedBranding);
+
+    return res.json({
       companyName,
       description,
       services,
       targetAudience: "Describe Your Target Audience",
       focusService: "Describe what service you want to focus on",
       websiteURL,
-    };
-
-    req.session.extractedBranding = extractedData;
-    cache.set(websiteURL, extractedData);
-
-    res.render("branding-social-details", {
-      ...extractedData,
       isRegistered: false,
     });
   } catch (error) {
     console.error("Error with Perplexity API:", error.response?.data || error.message);
-
-    // Fallback to basic URL parsing
     const urlFallback = new URL(websiteURL);
     const fallbackData = {
       companyName: urlFallback.hostname.replace('www.', '').split('.')[0] || "Unknown Company",
@@ -535,53 +528,56 @@ router.get("/extract-branding", async (req, res) => {
     };
 
     req.session.extractedBranding = fallbackData;
-    res.render("branding-social-details", {
+    return res.status(500).json({
       ...fallbackData,
-      isRegistered: false,
+      error: "Failed to extract website data. Using fallback values.",
     });
   }
 });
+
 
 // Clear in-memory cache every hour (optional)
 setInterval(() => cache.clear(), 60 * 60 * 1000);
 
 router.get("/generated-social", (req, res) => {
   if (!req.session || !req.session.generatedContent) {
-    return res.status(400).send("❌ Error: No content available. Generate a post first.");
+    return res.status(400).json({
+      error: "No content available. Generate a post first.",
+    });
   }
-
-  console.log("🎯 Rendering Page with:", req.session.generatedContent);
 
   const content = {
     ...req.session.generatedContent,
     socialMediaType: req.session.generatedContent.socialMediaType || "post"
   };
 
-  res.render("generated-social", content);
+  return res.json(content); // Send the generated content as a JSON response
 });
+
 
 router.get("/generate-new-content", (req, res) => {
   if (req.session.businessDetails) {
-    return res.render("branding-social-details", {
+    return res.json({
       companyName: req.session.businessDetails.companyName,
       description: req.session.businessDetails.description,
       targetAudience: req.session.businessDetails.targetAudience,
       services: req.session.businessDetails.services,
       focusService: req.session.businessDetails.focusService || "",
-      isRegistered: true
+      isRegistered: true,
     });
   } else if (req.session.tempBusinessDetails) {
-    return res.render("branding-social-details", {
+    return res.json({
       companyName: req.session.tempBusinessDetails.companyName,
       description: req.session.tempBusinessDetails.description,
       targetAudience: req.session.tempBusinessDetails.targetAudience,
       services: req.session.tempBusinessDetails.services,
       focusService: req.session.tempBusinessDetails.focusService || "",
-      isRegistered: false
+      isRegistered: false,
     });
   } else {
-    return res.redirect("/social-media/branding-social");
+    return res.json({ redirect: "/social-media/branding-social" }); // Return redirect URL in response
   }
 });
+
 
 module.exports = router;

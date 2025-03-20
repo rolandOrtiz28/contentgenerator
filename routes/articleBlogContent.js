@@ -20,14 +20,14 @@ const perplexityApi = axios.create({
 // In-memory cache for Perplexity results
 const cache = new Map();
 
-// Step 1: Display initial form
+// Step 1: Fetch businesses for the initial form
 router.get("/branding-article", async (req, res) => {
   try {
     const businesses = await Business.find({}, 'companyName');
-    res.render("branding-article", { businesses, error: null });
+    res.json({ businesses, error: null });
   } catch (error) {
     console.error("Error fetching businesses:", error);
-    res.render("branding-article", { businesses: [], error: "Failed to load businesses." });
+    res.status(500).json({ businesses: [], error: "Failed to load businesses." });
   }
 });
 
@@ -46,23 +46,23 @@ router.post("/branding-article-details", async (req, res) => {
     try {
       const business = await Business.findById(selectedBusiness);
       if (!business) {
-        return res.render("branding-article", {
-          businesses: await Business.find({}, 'companyName'),
+        return res.status(404).json({
           error: "Selected business not found.",
+          businesses: await Business.find({}, 'companyName'),
         });
       }
 
       if (password) {
         const isMatch = await business.comparePassword(password);
         if (!isMatch) {
-          return res.render("branding-article", {
-            businesses: await Business.find({}, 'companyName'),
+          return res.status(401).json({
             error: "Incorrect password for the selected business.",
+            businesses: await Business.find({}, 'companyName'),
           });
         }
 
         req.session.businessDetails = business;
-        return res.render("branding-article-details", {
+        return res.json({
           companyName: business.companyName,
           description: business.description || "No description provided.",
           services: business.services || "General services",
@@ -73,13 +73,13 @@ router.post("/branding-article-details", async (req, res) => {
           error: null,
         });
       } else {
-        return res.render("business-password-prompt", { businessId: selectedBusiness, error: null });
+        return res.json({ redirect: `/blog-article/business-password-prompt/${selectedBusiness}` });
       }
     } catch (error) {
       console.error("❌ Error fetching selected business:", error);
-      return res.render("branding-article", {
-        businesses: await Business.find({}, 'companyName'),
+      return res.status(500).json({
         error: "Error loading business details.",
+        businesses: await Business.find({}, 'companyName'),
       });
     }
   }
@@ -94,9 +94,9 @@ router.post("/branding-article-details", async (req, res) => {
   };
 
   if (hasWebsite === "yes" && companyWebsite) {
-    return res.redirect(`/article/extract-branding-article?website=${encodeURIComponent(companyWebsite)}`);
+    return res.json({ redirect: `/blog-article/extract-branding-article?website=${encodeURIComponent(companyWebsite)}` });
   } else if (hasWebsite === "no") {
-    return res.render("branding-article-details", {
+    return res.json({
       companyName: companyName || "",
       description: "",
       services: "",
@@ -107,9 +107,9 @@ router.post("/branding-article-details", async (req, res) => {
       error: null,
     });
   } else {
-    return res.render("branding-article", {
-      businesses: await Business.find({}, 'companyName'),
+    return res.status(400).json({
       error: "Please select whether you have a website.",
+      businesses: await Business.find({}, 'companyName'),
     });
   }
 });
@@ -119,7 +119,7 @@ router.get("/extract-branding-article", async (req, res) => {
   const websiteURL = req.query.website;
 
   if (!websiteURL) {
-    return res.render("branding-article-details", {
+    return res.status(400).json({
       companyName: req.session.tempBusinessDetails?.companyName || "",
       description: "",
       services: "",
@@ -134,7 +134,7 @@ router.get("/extract-branding-article", async (req, res) => {
   try {
     // Check session cache
     if (req.session.extractedBranding && req.session.extractedBranding.websiteURL === websiteURL) {
-      return res.render("branding-article-details", {
+      return res.json({
         ...req.session.extractedBranding,
         audience: req.session.tempBusinessDetails?.audience || "",
         brandTone: req.session.tempBusinessDetails?.brandTone || "",
@@ -153,7 +153,7 @@ router.get("/extract-branding-article", async (req, res) => {
         services: existingBusiness.services,
         websiteURL,
       };
-      return res.render("branding-article-details", {
+      return res.json({
         ...req.session.extractedBranding,
         audience: req.session.tempBusinessDetails?.audience || "",
         brandTone: req.session.tempBusinessDetails?.brandTone || "",
@@ -166,7 +166,7 @@ router.get("/extract-branding-article", async (req, res) => {
     // Check in-memory cache
     if (cache.has(websiteURL)) {
       req.session.extractedBranding = cache.get(websiteURL);
-      return res.render("branding-article-details", {
+      return res.json({
         ...req.session.extractedBranding,
         audience: req.session.tempBusinessDetails?.audience || "",
         brandTone: req.session.tempBusinessDetails?.brandTone || "",
@@ -216,7 +216,7 @@ router.get("/extract-branding-article", async (req, res) => {
     req.session.extractedBranding = { companyName, description, services, websiteURL };
     cache.set(websiteURL, req.session.extractedBranding);
 
-    res.render("branding-article-details", {
+    res.json({
       companyName,
       description,
       services,
@@ -235,7 +235,7 @@ router.get("/extract-branding-article", async (req, res) => {
       services: "No services found.",
       websiteURL,
     };
-    res.render("branding-article-details", {
+    res.status(500).json({
       ...req.session.extractedBranding,
       audience: req.session.tempBusinessDetails?.audience || "",
       brandTone: req.session.tempBusinessDetails?.brandTone || "",
@@ -369,22 +369,22 @@ router.post("/generate-content-article", async (req, res) => {
     req.session.generatedContent = humanizedArticle;
 
     if (req.session.tempBusinessDetails) {
-      return res.redirect("/article/save-details-prompt");
+      return res.json({ redirect: "/blog-article/save-details-prompt" });
     }
 
-    res.redirect("/article/generated-article");
+    res.json({ redirect: "/blog-article/generated-article" });
   } catch (error) {
     console.error("Error generating article:", error);
-    res.status(500).send("Error generating content. Please try again.");
+    res.status(500).json({ error: "Error generating content. Please try again." });
   }
 });
 
 // Step 5: Save business details prompt
 router.get("/save-details-prompt", (req, res) => {
   if (!req.session.tempBusinessDetails) {
-    return res.redirect("/article/branding-article");
+    return res.status(400).json({ redirect: "/blog-article/branding-article" });
   }
-  res.render("save-details-prompt", {
+  res.json({
     business: req.session.tempBusinessDetails,
     error: null,
   });
@@ -404,19 +404,19 @@ router.post("/save-details", async (req, res) => {
       await business.save();
       req.session.businessDetails = business;
       delete req.session.tempBusinessDetails;
-      res.redirect("/article/generated-article");
+      res.json({ redirect: "/blog-article/generated-article" });
     } catch (error) {
       console.error("Error saving business:", error);
-      res.render("save-details-prompt", {
+      res.status(500).json({
         business: req.session.tempBusinessDetails,
         error: "Failed to save business details.",
       });
     }
   } else if (saveChoice === "no") {
     delete req.session.tempBusinessDetails;
-    res.redirect("/article/generated-article");
+    res.json({ redirect: "/blog-article/generated-article" });
   } else {
-    res.render("save-details-prompt", {
+    res.status(400).json({
       business: req.session.tempBusinessDetails,
       error: "Please provide a password to save your details.",
     });
@@ -426,15 +426,15 @@ router.post("/save-details", async (req, res) => {
 // Step 7: Display generated article
 router.get("/generated-article", (req, res) => {
   if (!req.session?.generatedContent) {
-    return res.status(400).send("No content available. Generate an article first.");
+    return res.status(400).json({ error: "No content available. Generate an article first." });
   }
-  res.render("generated-article", { content: req.session.generatedContent });
+  res.json({ content: req.session.generatedContent });
 });
 
 // Step 8: Generate new content
 router.get("/generate-new-content", (req, res) => {
   if (req.session.businessDetails) {
-    return res.render("branding-article-details", {
+    return res.json({
       companyName: req.session.businessDetails.companyName,
       description: req.session.businessDetails.description || "",
       services: req.session.businessDetails.services || "",
@@ -445,7 +445,7 @@ router.get("/generate-new-content", (req, res) => {
       error: null,
     });
   } else if (req.session.tempBusinessDetails) {
-    return res.render("branding-article-details", {
+    return res.json({
       companyName: req.session.tempBusinessDetails.companyName,
       description: req.session.tempBusinessDetails.description || "",
       services: req.session.tempBusinessDetails.services || "",
@@ -456,7 +456,7 @@ router.get("/generate-new-content", (req, res) => {
       error: null,
     });
   }
-  res.redirect("/article/branding-article");
+  res.json({ redirect: "/blog-article/branding-article" });
 });
 
 // Clear cache every hour

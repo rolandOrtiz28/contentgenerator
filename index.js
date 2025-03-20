@@ -4,8 +4,6 @@ const bodyParser = require("body-parser");
 const axios = require("axios");
 const path = require("path");
 const OpenAI = require("openai");
-const cheerio = require("cheerio");
-const puppeteer = require("puppeteer");
 const session = require("express-session");
 const MongoDBStore = require("connect-mongodb-session")(session);
 const mongoose = require("mongoose");
@@ -13,6 +11,7 @@ const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const xss = require("xss-clean");
 const mongoSanitize = require("express-mongo-sanitize");
+const cors = require("cors"); // Add CORS
 
 const socialMediaRoute = require('./routes/socialMediaContent');
 const articleBlogRoute = require('./routes/articleBlogContent');
@@ -22,7 +21,26 @@ const PORT = process.env.PORT || 3000;
 
 const secret = process.env.SESSION_SECRET || "default-secret-please-change-me";
 const dbUrl = process.env.DB_URL || "mongodb://127.0.0.1:27017/aicontentgenerator";
-// 
+
+// Enable CORS
+
+app.use(cors({
+  origin: (origin, callback) => {
+    const allowedOrigins = [
+      "http://localhost:8080", // Frontend local dev URL
+      "https://content.editedgemultimedia.com", // Updated production frontend URL
+    ];
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  credentials: true,
+}));
+
+
+// Security Headers (Helmet)
 const frameSrcUrls = [
   "https://js.stripe.com/",
   "https://www.sandbox.paypal.com/",
@@ -43,9 +61,9 @@ const scriptSrcUrls = [
   "https://api.tiles.mapbox.com/",
   "https://api.mapbox.com/",
   "https://code.jquery.com/",
-  "https://cdn.quilljs.com/" ,
-  "https://cdn.tailwindcss.com/" ,
-  "https://cdn.ckeditor.com/" 
+  "https://cdn.quilljs.com/",
+  "https://cdn.tailwindcss.com/",
+  "https://cdn.ckeditor.com/",
 ];
 
 const styleSrcUrls = [
@@ -56,7 +74,7 @@ const styleSrcUrls = [
   "https://kit-free.fontawesome.com/",
   "https://api.mapbox.com/",
   "https://api.tiles.mapbox.com/",
-  "https://cdn.quilljs.com/"
+  "https://cdn.quilljs.com/",
 ];
 
 const connectSrcUrls = [
@@ -78,18 +96,17 @@ const imgSrcUrls = [
   "https://cdn.jsdelivr.net/",
   "https://kit-free.fontawesome.com/",
   "https://cdnjs.cloudflare.com/",
-  "https://res.cloudinary.com/" ,
-  "https://media.istockphoto.com/" ,
-  "https://plus.unsplash.com/" ,
-  "https://mdbcdn.b-cdn.net/" ,
-  
+  "https://res.cloudinary.com/",
+  "https://media.istockphoto.com/",
+  "https://plus.unsplash.com/",
+  "https://mdbcdn.b-cdn.net/",
 ];
 
 const fontSrcUrls = [
   "https://fonts.gstatic.com/",
   "https://cdnjs.cloudflare.com/",
   "https://cdn.jsdelivr.net/",
-  "https://ka-f.fontawesome.com/"
+  "https://ka-f.fontawesome.com/",
 ];
 
 const mediaSrcUrls = [
@@ -99,7 +116,7 @@ const mediaSrcUrls = [
   "https://drive.google.com/",
   "https://www.google.com/",
   "https://www.dropbox.com/",
-  "https://dl.dropboxusercontent.com/" // Allow direct Dropbox links
+  "https://dl.dropboxusercontent.com/",
 ];
 
 app.use(
@@ -118,15 +135,15 @@ app.use(
       imgSrc: ["'self'", "blob:", "data:", ...imgSrcUrls],
       fontSrc: ["'self'", ...fontSrcUrls, "data:"],
       mediaSrc: [...mediaSrcUrls],
-      "script-src-attr": ["'unsafe-inline'"], 
+      "script-src-attr": ["'unsafe-inline'"],
     },
   })
 );
 
 const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 100,
-    message: "Too many requests from this IP, please try again later."
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: "Too many requests from this IP, please try again later.",
 });
 app.use(limiter);
 
@@ -135,20 +152,20 @@ app.use(mongoSanitize());
 
 // Database Connection
 mongoose.connect(dbUrl, {
-    serverSelectionTimeoutMS: 5000
+  serverSelectionTimeoutMS: 5000,
 }).catch(err => console.error("MongoDB Connection Error:", err));
 
 const db = mongoose.connection;
 db.on("error", console.error.bind(console, "Connection error:"));
 db.once("open", () => {
-    console.log("✅ Database Connected");
+  console.log("✅ Database Connected");
 });
 
 // Session Store
 const store = new MongoDBStore({
-    uri: dbUrl,
-    collection: "sessions",
-    touchAfter: 24 * 3600,
+  uri: dbUrl,
+  collection: "sessions",
+  touchAfter: 24 * 3600,
 });
 store.on("connected", () => {
   console.log("MongoDB session store connected");
@@ -167,7 +184,7 @@ app.use(session({
   store: store,
   cookie: {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production" ? true : false, // Ensure false in dev
+    secure: process.env.NODE_ENV === "production" ? true : false,
     sameSite: "strict",
     maxAge: 1000 * 60 * 60 * 24 * 7,
   },
@@ -177,82 +194,67 @@ app.use(session({
 app.use(bodyParser.urlencoded({ extended: true, limit: "10kb" }));
 app.use(bodyParser.json({ limit: "10kb" }));
 app.use(express.static(path.join(__dirname, "public"), {
-    etag: true,
-    lastModified: true
+  etag: true,
+  lastModified: true,
 }));
 app.set("view engine", "ejs");
 app.set("trust proxy", 1);
 
 // Logging
 app.use((req, res, next) => {
-    console.log(`${req.method} ${req.path} - ${req.ip}`);
-    next();
+  console.log(`${req.method} ${req.path} - ${req.ip}`);
+  next();
 });
 
 // OpenAI Setup
 let openai;
 try {
-    openai = new OpenAI({
-        apiKey: process.env.OPENAI_API_KEY,
-    });
+  openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
 } catch (error) {
-    console.error("Failed to initialize OpenAI:", error);
+  console.error("Failed to initialize OpenAI:", error);
 }
 
 // Routes
-app.get("/", (req, res) => res.render("home"));
-app.get("/practice", (req, res) => {
-  const sampleData = {
-    companyName: "EditEdge Multimedia: Video Editing, Graphic Design, 3D Art, Web Development & Digital Marketing",
-    description: "EditEdge Multimedia is a full-service creative agency offering video editing, graphic design, 3D art, web development, and digital marketing. They blend technical expertise with creativity to enhance clients' digital presence.",
-    targetAudience: "small medium entrepreneur",
-    services: "Video Editing, Graphic Design, 3D Art, Web Development, Digital Marketing",
-    socialMediaType: "post",
-    brandTone: "professional",
-    purpose: "Promote services",
-    theme: "Educational",
-    adDetails: "Highlight video editing expertise",
-    suggestedTopics: [
-      "Unlocking Creativity: Exploring the World of Video Editing with EditEdge Multimedia",
-      "How EditEdge Multimedia Combines Graphic Design & 3D Art to Create Stunning Visuals",
-      "Boosting Your Online Presence with EditEdge Multimedia’s Web Development & Digital Marketing",
-      "Understanding the Importance of Professional Video Editing in Digital Marketing: A Look at EditEdge Multimedia’s Services",
-      "Revolutionizing Creative Solutions: A Deep Dive into EditEdge Multimedia’s Comprehensive Services"
-    ]
-  };
-  res.render("select-topic", sampleData);
-});
+app.get("/", (req, res) => res.json({ message: "Welcome to the API" })); // Update to return JSON
+
 app.post("/select-branding", (req, res) => {
-    const contentType = req.body.contentType;
-    if (!contentType) return res.status(400).send("Content type is required");
-    switch(contentType) {
-        case "social": res.redirect("/social-media/branding-social"); break;
-        case "article": res.redirect("/blog-article/branding-article"); break;
-        default: res.redirect("/select-content");
-    }
+  const contentType = req.body.contentType;
+  if (!contentType) return res.status(400).json({ error: "Content type is required" });
+  switch (contentType) {
+    case "social":
+      res.json({ redirect: "/social-media/branding-social" });
+      break;
+    case "article":
+      res.json({ redirect: "/blog-article/branding-article" });
+      break;
+    default:
+      res.json({ redirect: "/select-content" });
+  }
 });
-app.get("/select-content", (req, res) => res.render("select-content"));
+app.get("/select-content", (req, res) => res.json({ message: "Select content type" })); // Update to return JSON
 app.use('/social-media', socialMediaRoute);
 app.use('/blog-article', articleBlogRoute);
 
 // Error Handling
-app.use((req, res) => res.status(404).send("Page not found"));
+app.use((req, res) => res.status(404).json({ error: "Page not found" }));
 app.use((err, req, res, next) => {
-    console.error(err.stack);
-    res.status(500).send("Something went wrong!");
+  console.error(err.stack);
+  res.status(500).json({ error: "Something went wrong!" });
 });
 
 // Start Server
 const server = app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
+  console.log(`Server is running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
 });
 
 // Graceful Shutdown
 process.on('SIGTERM', () => {
-    console.log('SIGTERM received: closing server');
-    server.close(() => {
-        mongoose.connection.close();
-        console.log('Server closed');
-        process.exit(0);
-    });
+  console.log('SIGTERM received: closing server');
+  server.close(() => {
+    mongoose.connection.close();
+    console.log('Server closed');
+    process.exit(0);
+  });
 });
