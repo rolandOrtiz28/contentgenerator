@@ -1,28 +1,73 @@
 const mongoose = require('mongoose');
-const Schema = mongoose.Schema;
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 
-const businessSchema = new Schema({
-  companyName: { type: String, required: true },
-  description: { type: String, required: true },
-  targetAudience: { type: String, required: true },
-  services: { type: String, required: true },
-  focusService: { type: String, required: true },
-  password: { type: String, required: true }, // Store hashed password
-  createdAt: { type: Date, default: Date.now }
+const BusinessSchema = new mongoose.Schema({
+  companyName: {
+    type: String,
+    required: true,
+    trim: true,
+  },
+  description: {
+    type: String,
+    default: '',
+  },
+  services: {
+    type: String,
+    default: '',
+  },
+  targetAudience: {
+    type: String,
+    default: '',
+  },
+  demographic: {
+    type: String,
+    default: '',
+  },
+  address: {
+    type: String,
+    default: '',
+  },
+  email: {
+    type: String,
+    default: '',
+  },
+  phoneNumber: {
+    type: String,
+    default: '',
+  },
+  brandTone: {
+    type: String,
+    default: 'professional',
+  },
+  socialMediaType: {
+    type: String,
+    default: '',
+  },
+  hasWebsite: {
+    type: String,
+    default: 'no',
+  },
+  companyWebsite: {
+    type: String,
+    default: '',
+  },
+  password: {
+    type: String,
+    required: true,
+  },
 });
 
-// Hash password before saving
-businessSchema.pre('save', async function(next) {
-  if (this.isModified('password')) {
-    this.password = await bcrypt.hash(this.password, 10); // Hash with salt rounds 10
-  }
-  next();
-});
+// Static method to hash password
+BusinessSchema.statics.hashPassword = async function (password) {
+  console.log('hashPassword method called with password:', password);
+  return await bcrypt.hash(password, 10);
+};
 
-// Method to check password
-businessSchema.methods.comparePassword = async function(candidatePassword) {
+// Instance method to compare password
+BusinessSchema.methods.comparePassword = async function (candidatePassword) {
+  console.log('comparePassword method called with candidatePassword:', candidatePassword);
+  console.log('Stored hashed password:', this.password);
   return await bcrypt.compare(candidatePassword, this.password);
 };
 
-module.exports = mongoose.model('Business', businessSchema);
+module.exports = mongoose.model('Business', BusinessSchema);

@@ -1,7 +1,6 @@
 require("dotenv").config();
 const express = require("express");
 const bodyParser = require("body-parser");
-const axios = require("axios");
 const path = require("path");
 const OpenAI = require("openai");
 const session = require("express-session");
@@ -11,7 +10,7 @@ const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const xss = require("xss-clean");
 const mongoSanitize = require("express-mongo-sanitize");
-const cors = require("cors"); // Add CORS
+const cors = require("cors");
 
 const socialMediaRoute = require('./routes/socialMediaContent');
 const articleBlogRoute = require('./routes/articleBlogContent');
@@ -22,15 +21,12 @@ const PORT = process.env.PORT || 3000;
 
 const secret = process.env.SESSION_SECRET || "default-secret-please-change-me";
 const dbUrl = process.env.DB_URL || "mongodb://127.0.0.1:27017/aicontentgenerator";
+const isProduction = process.env.NODE_ENV === "production";
 
 // Enable CORS
-
 app.use(cors({
   origin: (origin, callback) => {
-    const allowedOrigins = [
-      "http://localhost:8080", // Frontend local dev URL
-      "https://content.editedgemultimedia.com", // Updated production frontend URL
-    ];
+    const allowedOrigins = ["http://localhost:8080", "https://content.editedgemultimedia.com"];
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
@@ -39,7 +35,6 @@ app.use(cors({
   },
   credentials: true,
 }));
-
 
 // Security Headers (Helmet)
 const frameSrcUrls = [
@@ -89,6 +84,8 @@ const connectSrcUrls = [
   "https://b.tiles.mapbox.com/",
   "https://events.mapbox.com/",
   "blob:",
+  "ws://localhost:3000", // For Socket.IO in development
+  "wss://content.editedgemultimedia.com", // For Socket.IO in production
 ];
 
 const imgSrcUrls = [
@@ -141,39 +138,63 @@ app.use(
   })
 );
 
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: process.env.NODE_ENV === 'production' ? 100 : 1000,
   message: "Too many requests from this IP, please try again later.",
 });
-app.use(limiter);
 
+// Rate limiter for API routes
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: process.env.NODE_ENV === 'production' ? 50 : 500,
+  message: "Too many API requests from this IP, please try again later.",
+});
+
+// Apply general limiter to all routes except /socket.io/
+app.use((req, res, next) => {
+  if (req.path.startsWith('/socket.io/')) {
+    return next();
+  }
+  generalLimiter(req, res, next);
+});
+
+// Apply stricter limiter to API routes
+app.use('/api/', apiLimiter);
 app.use(xss());
 app.use(mongoSanitize());
 
 // Database Connection
 mongoose.connect(dbUrl, {
   serverSelectionTimeoutMS: 5000,
-}).catch(err => console.error("MongoDB Connection Error:", err));
+  connectTimeoutMS: 10000,
+  socketTimeoutMS: 45000,
+})
+  .then(() => console.log("✅ Database Connected"))
+  .catch((err) => {
+    console.error("❌ MongoDB Connection Error:", err);
+    process.exit(1);
+  });
 
 const db = mongoose.connection;
-db.on("error", console.error.bind(console, "Connection error:"));
+db.on("error", (err) => {
+  console.error("❌ MongoDB Connection Error:", err);
+});
 db.once("open", () => {
-  console.log("✅ Database Connected");
+  console.log("✅ MongoDB Connection Established");
 });
 
 // Session Store
 const store = new MongoDBStore({
   uri: dbUrl,
   collection: "sessions",
-  touchAfter: 24 * 3600,
 });
 store.on("connected", () => {
   console.log("MongoDB session store connected");
 });
 
 store.on("error", (error) => {
-  console.error("Session store error:", error);
+  console.error("❌ Session store error:", error);
 });
 
 // Session Configuration
@@ -185,9 +206,9 @@ app.use(session({
   store: store,
   cookie: {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production" ? true : false,
+    secure: isProduction,
     sameSite: "strict",
-    maxAge: 1000 * 60 * 60 * 24 * 7,
+    maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
   },
 }));
 
@@ -198,7 +219,6 @@ app.use(express.static(path.join(__dirname, "public"), {
   etag: true,
   lastModified: true,
 }));
-app.set("view engine", "ejs");
 app.set("trust proxy", 1);
 
 // Logging
@@ -213,44 +233,42 @@ try {
   openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
   });
+  console.log("✅ OpenAI Initialized");
 } catch (error) {
-  console.error("Failed to initialize OpenAI:", error);
+  console.error("❌ Failed to initialize OpenAI:", error);
 }
 
-// Routes
-app.get("/", (req, res) => res.json({ message: "Welcome to the API" })); // Update to return JSON
+// API Routes
+app.use('/api/social-media', socialMediaRoute);
+app.use('/api/blog-article', articleBlogRoute);
+app.use('/api/blog-article', businessRoute);
+app.use('/api/social-media', businessRoute);
+app.use('/api/business', businessRoute);
 
-app.post("/select-branding", (req, res) => {
-  const contentType = req.body.contentType;
-  if (!contentType) return res.status(400).json({ error: "Content type is required" });
-  switch (contentType) {
-    case "social":
-      res.json({ redirect: "/social-media/branding-social" });
-      break;
-    case "article":
-      res.json({ redirect: "/blog-article/branding-article" });
-      break;
-    default:
-      res.json({ redirect: "/select-content" });
-  }
-});
+// Serve React SPA in production only
+if (isProduction) {
+  // Serve static files from client/dist
+  app.use(express.static(path.join(__dirname, 'client', 'dist')));
 
-// Serve static files (React build)
-app.use(express.static(path.join(__dirname, 'client', 'dist')));
-
-app.get("/select-content", (req, res) => res.json({ message: "Select content type" })); // Update to return JSON
-app.use('/social-media', socialMediaRoute);
-app.use('/blog-article', articleBlogRoute);
-app.use('/business', businessRoute);
-
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'client', 'dist', 'index.html'));
-});
+  // Catch-all route for SPA (client-side routing)
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'client', 'dist', 'index.html'), (err) => {
+      if (err) {
+        console.error("❌ Error serving index.html:", err);
+        res.status(500).json({ error: 'Failed to serve the application' });
+      }
+    });
+  });
+} else {
+  // In development, return a 404 for unmatched routes (let Vite handle frontend)
+  app.get('*', (req, res) => {
+    res.status(404).json({ error: 'Not Found (development mode)' });
+  });
+}
 
 // Error Handling
-app.use((req, res) => res.status(404).json({ error: "Page not found" }));
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  console.error("❌ Server Error:", err.stack);
   res.status(500).json({ error: "Something went wrong!" });
 });
 

@@ -318,42 +318,7 @@ router.get("/save-details-prompt", (req, res) => {
   });
 });
 
-router.post("/save-details", async (req, res) => {
-  const { saveChoice, password } = req.body;
 
-  if (saveChoice === "yes" && req.session.tempBusinessDetails && password) {
-    try {
-      const businessData = {
-        companyName: req.session.tempBusinessDetails.companyName,
-        description: req.session.tempBusinessDetails.description,
-        targetAudience: req.session.tempBusinessDetails.targetAudience,
-        services: req.session.tempBusinessDetails.services,
-        focusService: req.session.tempBusinessDetails.focusService,
-        password
-      };
-      
-      const business = new Business(businessData);
-      await business.save();
-      req.session.businessDetails = business;
-      delete req.session.tempBusinessDetails;
-      
-      return res.json({ redirect: "/social-media/content-details" }); // Redirect to content details form
-    } catch (error) {
-      console.error("Error saving business:", error);
-      return res.json({
-        business: req.session.tempBusinessDetails,
-        error: "Failed to save business details."
-      });
-    }
-  } else if (saveChoice === "no") {
-    return res.json({ redirect: "/social-media/content-details" }); // Redirect to content details form
-  } else {
-    return res.json({
-      business: req.session.tempBusinessDetails,
-      error: "Please provide a password to save your details."
-    });
-  }
-});
 
 // Updated /extract-branding route using Perplexity with cost-saving measures
 router.get("/extract-branding", async (req, res) => {
