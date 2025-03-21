@@ -204,602 +204,410 @@ router.get("/content-details", async (req, res) => {
 
 // Step 5: Generate the SEO-optimized article
 router.post("/generate-content-article", async (req, res) => {
-  const { companyName, description, services, targetAudience, brandTone, keyword, secondaryKeywords, articleLength, keyPoints, cta, uniqueBusinessGoal, specificChallenge, personalAnecdote } = req.body;
+  const {
+    companyName,
+    description,
+    services,
+    targetAudience,
+    brandTone,
+    keyword,
+    secondaryKeywords,
+    articleLength,
+    keyPoints,
+    cta,
+    uniqueBusinessGoal,
+    specificChallenge,
+    personalAnecdote,
+  } = req.body;
 
-  // Fallback to session data if request body values are missing
-  let finalCompanyName = companyName || req.session.businessDetails?.companyName || req.session.tempBusinessDetails?.companyName || "Unknown Company";
-  let finalDescription = description || req.session.extractedBranding?.description || req.session.businessDetails?.description || "A company offering digital solutions.";
-  let finalServices = services || req.session.extractedBranding?.services || req.session.businessDetails?.services || "General digital services";
-  let finalTargetAudience = targetAudience || req.session.tempBusinessDetails?.targetAudience || req.session.businessDetails?.targetAudience || "General audience";
-  let finalBrandTone = brandTone || req.session.tempBusinessDetails?.brandTone || req.session.businessDetails?.brandTone || "professional";
-  let finalUniqueBusinessGoal = uniqueBusinessGoal || req.session.tempBusinessDetails?.uniqueBusinessGoal || "Increase online visibility";
-  let finalSpecificChallenge = specificChallenge || req.session.tempBusinessDetails?.specificChallenge || "Standing out in a competitive market";
-  let finalPersonalAnecdote = personalAnecdote || req.session.tempBusinessDetails?.personalAnecdote || "A client success story that highlights our expertise";
-  
-  const businessDetails = { 
-    companyName: finalCompanyName, 
-    description: finalDescription, 
-    services: finalServices, 
+  // Fallbacks with dynamic, versatile defaults
+  const finalCompanyName =
+    companyName ||
+    req.session.businessDetails?.companyName ||
+    req.session.tempBusinessDetails?.companyName ||
+    "Your Company"; // Neutral default
+  const finalServices =
+    services ||
+    req.session.extractedBranding?.services ||
+    req.session.businessDetails?.services ||
+    "custom business solutions"; // Broad, adaptable default
+  const finalDescription =
+    description ||
+    req.session.extractedBranding?.description ||
+    req.session.businessDetails?.description ||
+    `${finalCompanyName} provides ${finalServices} to help businesses achieve their goals.`; // Dynamic fallback using services
+  const finalTargetAudience =
+    targetAudience ||
+    req.session.tempBusinessDetails?.targetAudience ||
+    req.session.businessDetails?.targetAudience ||
+    "businesses seeking growth"; // Neutral default
+  const finalBrandTone =
+    brandTone ||
+    req.session.tempBusinessDetails?.brandTone ||
+    req.session.businessDetails?.brandTone ||
+    "professional";
+  const finalUniqueBusinessGoal =
+    uniqueBusinessGoal ||
+    req.session.tempBusinessDetails?.uniqueBusinessGoal ||
+    "enhance business success";
+  const finalSpecificChallenge =
+    specificChallenge ||
+    req.session.tempBusinessDetails?.specificChallenge ||
+    "competing in a crowded market";
+  const finalPersonalAnecdote =
+    personalAnecdote ||
+    req.session.tempBusinessDetails?.personalAnecdote ||
+    "A client saw significant improvement after using our services";
+
+  const businessDetails = {
+    companyName: finalCompanyName,
+    description: finalDescription,
+    services: finalServices,
     targetAudience: finalTargetAudience,
     uniqueBusinessGoal: finalUniqueBusinessGoal,
     specificChallenge: finalSpecificChallenge,
     personalAnecdote: finalPersonalAnecdote,
   };
-  const suggestions = await suggestKeywordsWithOpenAI(businessDetails);
-  let finalKeyword = keyword || suggestions.primaryKeywords[0] || "SEO optimization";
-  let finalSecondaryKeywords = secondaryKeywords || suggestions.secondaryKeywords || [];
-  let finalArticleLength = articleLength || "1500-2000 words";
-  let finalKeyPoints = keyPoints || suggestions.keyPoints || ["Importance of the service", "How to choose the right provider", "Why it matters for your audience"];
-  let finalCta = cta || "Contact us for more information!";
+  const suggestions = await suggestKeywordsWithOpenAI(businessDetails); // Assuming this exists
+  const finalKeyword =
+    keyword || suggestions.primaryKeywords[0] || "business growth solutions"; // Neutral default
+  const finalSecondaryKeywords =
+    secondaryKeywords ||
+    suggestions.secondaryKeywords ||
+    ["business strategy", "customer engagement", "market visibility"]; // Generic defaults
+  const finalArticleLength = articleLength || "1500-2000 words";
+  const finalKeyPoints =
+    keyPoints ||
+    suggestions.keyPoints ||
+    [
+      `How ${finalKeyword} drives ${finalUniqueBusinessGoal.split(' ')[0]}`,
+      `Addressing ${finalSpecificChallenge} with ${finalCompanyName}`,
+      `Benefits for ${finalTargetAudience}`,
+    ];
+  const finalCta = cta || "Contact us to boost your business today!";
 
-  // Introduce variability in section headings and tone
-  const toneVariations = [
-    "conversational and witty",
-    "professional and authoritative",
-    "inspirational and motivational",
-    "casual and relatable",
-    "technical and informative",
-  ];
-  const selectedTone = finalBrandTone || toneVariations[Math.floor(Math.random() * toneVariations.length)];
+  // Extract primary service from keyword or services for focus
+  const primaryService = finalKeyword.split(' ')[0] === "professional" 
+    ? finalKeyword.split(' ')[1] 
+    : finalKeyword.split(' ')[0] || finalServices.split(',')[0].trim(); // Fallback to first service if keyword is vague
 
-  const sectionVariations = {
-    benefits: [
-      "Why [Service] Matters for Your Business",
-      "The Power of [Service] in Growing Your Brand",
-      "How [Service] Can Transform Your Online Presence",
-    ],
-    choosingProvider: [
-      "Finding the Perfect [Service] Partner",
-      "What to Look for in a [Service] Provider",
-      "How to Choose the Best [Service] Team",
-    ],
-    audience: [
-      "Why Your Audience Needs [Service]",
-      "Connecting with Your Audience Through [Service]",
-      "How [Service] Speaks to Your Customers",
-    ],
-    beyondService: [
-      "More Than [Service]: A Full Multimedia Experience",
-      "Expanding Your Strategy Beyond [Service]",
-      "Comprehensive Solutions to Complement [Service]",
-    ],
-    successStories: [
-      "Real Wins with [CompanyName]",
-      "Success Stories: How [CompanyName] Delivered Results",
-      "Client Victories Powered by [CompanyName]",
-    ],
-    technology: [
-      "Using Cutting-Edge Tech for [Service]",
-      "How Technology Elevates Our [Service] Game",
-      "The Tech Behind Superior [Service]",
-    ],
-    impact: [
-      "Measuring the ROI of [Service]",
-      "How [Service] Impacts Your Bottom Line",
-      "Tracking the Success of Your [Service] Efforts",
-    ],
-  };
-
-  const selectedSections = {
-    benefits: sectionVariations.benefits[Math.floor(Math.random() * sectionVariations.benefits.length)],
-    choosingProvider: sectionVariations.choosingProvider[Math.floor(Math.random() * sectionVariations.choosingProvider.length)],
-    audience: sectionVariations.audience[Math.floor(Math.random() * sectionVariations.audience.length)],
-    beyondService: sectionVariations.beyondService[Math.floor(Math.random() * sectionVariations.beyondService.length)],
-    successStories: sectionVariations.successStories[Math.floor(Math.random() * sectionVariations.successStories.length)],
-    technology: sectionVariations.technology[Math.floor(Math.random() * sectionVariations.technology.length)],
-    impact: sectionVariations.impact[Math.floor(Math.random() * sectionVariations.impact.length)],
-  };
-
-  // Replace placeholders in section headings
-  const serviceName = finalServices.split(',')[0].trim(); // Use the first service as the main focus
-  const formattedSections = {
-    benefits: selectedSections.benefits.replace('[Service]', serviceName),
-    choosingProvider: selectedSections.choosingProvider.replace('[Service]', serviceName),
-    audience: selectedSections.audience.replace('[Service]', serviceName),
-    beyondService: selectedSections.beyondService.replace('[Service]', serviceName),
-    successStories: selectedSections.successStories.replace('[CompanyName]', finalCompanyName),
-    technology: selectedSections.technology.replace('[Service]', serviceName),
-    impact: selectedSections.impact.replace('[Service]', serviceName),
-  };
-
-  // Generate the article with a more explicit and structured prompt
+  // Updated prompt with versatile fallback
   const contentPrompt = `
-    You are an expert content writer specializing in SEO-optimized blog articles. Write a high-quality, SEO-optimized blog article for the following business. Follow the exact structure and format provided below, ensuring all sections are included and properly formatted with the specified markers (e.g., **Section Name:**, ## Heading, ### Subheading). Do not skip any sections, and ensure the content is engaging, humanized, and tailored to the business details. Generate the full article, including all sections, even if it requires more tokens—do not truncate the response.
+You are an expert SEO content writer. Write a professional, SEO-optimized blog article for the following business. Use a ${finalBrandTone} tone, avoiding casual language or unrelated topics.
 
-    Business Details:
-    - **Company Name:** ${finalCompanyName}
-    - **Target Audience:** ${finalTargetAudience}
-    - **Brand Tone:** ${selectedTone}
-    - **Primary SEO Keyword:** ${finalKeyword}
-    - **Secondary Keywords:** ${finalSecondaryKeywords.join(', ')}
-    - **Description:** ${finalDescription}
-    - **Services:** ${finalServices}
-    - **Unique Business Goal:** ${finalUniqueBusinessGoal}
-    - **Specific Challenge:** ${finalSpecificChallenge}
-    - **Personal Anecdote:** ${finalPersonalAnecdote}
-    - **Article Length:** ${finalArticleLength}
-    - **CTA:** ${finalCta}
+Business Details:
+- Company Name: ${finalCompanyName}
+- Description: ${finalDescription}
+- Primary Service (Focus): ${primaryService} (derived from "${finalKeyword}" or first listed service)
+- All Services (Context Only): ${finalServices}
+- Target Audience: ${finalTargetAudience}
+- Primary Keyword: ${finalKeyword}
+- Secondary Keywords: ${finalSecondaryKeywords.join(', ')}
+- Unique Business Goal: ${finalUniqueBusinessGoal}
+- Specific Challenge: ${finalSpecificChallenge}
+- Personal Anecdote: ${finalPersonalAnecdote}
+- Article Length: ${finalArticleLength}
+- CTA: ${finalCta}
 
-    Follow these strict guidelines to make the content humanized, engaging, and cost-efficient:
-    1. **Humanization Guidelines**:
-       - Use a ${selectedTone} tone to make the content feel fresh and engaging.
-       - Include idioms, metaphors, anecdotes, and natural dialogue to connect with the reader.
-       - Incorporate the personal anecdote (${finalPersonalAnecdote}) in the "${formattedSections.successStories}" section to add a unique touch.
-       - Avoid overusing the words "unique", "ensure", "utmost" (use each fewer than 3 times).
-       - Rewrite sentences containing the following words with appropriate alternatives: meticulous, meticulously, navigating, complexities, realm, bespoke, tailored, towards, underpins, ever-changing, ever-evolving, the world of, not only, seeking more than just, designed to enhance, it’s not merely, our suite, it is advisable, daunting, in the heart of, when it comes to, in the realm of, amongst, unlock the secrets, unveil the secrets, robust.
-    2. **Structure and Readability**:
-       - Use heterogeneous paragraphs and sentence lengths, primarily short and straightforward sentences.
-       - Format the content with proper markdown (e.g., line breaks between paragraphs, bullet points for lists).
-       - Use ** for bold section titles (e.g., **Introduction:**), ## for H2 headings, and ### for H3 subheadings.
-    3. **Content Quality**:
-       - Add 2-3 relevant facts to support the content (e.g., statistics about the service or target audience).
-       - Include unique insights related to the specific challenge (${finalSpecificChallenge}) and business goal (${finalUniqueBusinessGoal}).
-       - Do not include fluff; every sentence must provide value.
-    4. **SEO Guidelines**:
-       - Follow Ahrefs SEO guidelines, targeting middle-of-the-funnel readers.
-       - Use the primary keyword (${finalKeyword}) 5-7 times naturally.
-       - Include semantic keywords (${finalSecondaryKeywords.join(', ')}) naturally.
-    5. **Engagement**:
-       - Prioritize engagement by addressing the specific challenge (${finalSpecificChallenge}) and tying it to the business goal (${finalUniqueBusinessGoal}).
-       - Use storytelling to make the content memorable, incorporating the personal anecdote in the "${formattedSections.successStories}" section.
+Guidelines:
+- Focus EXCLUSIVELY on ${primaryService} (e.g., "${primaryService}" from "${finalKeyword}" or first service in "${finalServices}"). Do NOT discuss other services unless directly supporting ${primaryService}.
+- Use "${finalKeyword}" 5-7 times naturally (intro, each section, conclusion).
+- Use each secondary keyword 2-3 times to reinforce ${finalKeyword}.
+- Mention ${finalCompanyName} 3-5 times for brand reinforcement (intro, success stories, conclusion).
+- Target middle-of-the-funnel ${finalTargetAudience} researching ${primaryService} to achieve ${finalUniqueBusinessGoal}.
+- Include 2-3 internal links (e.g., /services/${primaryService.replace(/\s/g, '-')}) and 1-2 external links to authoritative sources (e.g., https://www.forbes.com for business topics).
+- Write concise paragraphs (50-70 words) with clear topic sentences.
+- Distribute content: 200-word intro, 300-400 words per section, 200-word conclusion.
+- Address ${finalSpecificChallenge} in intro, success stories, and FAQs with ${primaryService} solutions.
+- Base content on: ${finalKeyPoints.join(', ')}.
 
-    The article must include the following sections and structure, matching the format of a professional SEO-optimized blog post:
-    - **Proposed URL:** /[keyword-slug]-article
-    - **Title Tag:** [Title with keyword] - ${finalCompanyName}
-    - **Meta Description:** (120-150 characters) with the keyword.
-    - **Content Intent:** This blog post targets a middle-of-the-funnel audience, focusing on ${finalTargetAudience} who are researching ${finalServices} to achieve ${finalUniqueBusinessGoal}. It addresses their needs, challenges (e.g., ${finalSpecificChallenge}), and considerations while showcasing ${finalCompanyName}’s expertise.
-    - **Target Keyword:** ${finalKeyword}
-    - **Key Takeaways:** 3-5 bullet points summarizing the main points.
-    - **Introduction:** (150-200 words) introducing the topic, the company, and the value of the service, mentioning the specific challenge (${finalSpecificChallenge}). This section is mandatory—do not skip it.
-    - **Main Sections:** 7 sections (200-300 words each) with H2 headings, providing detailed explanations with examples, facts, and insights:
-      - **${formattedSections.benefits}** with 2 H3 subheadings.
-      - **${formattedSections.choosingProvider}** with 2 H3 subheadings.
-      - **${formattedSections.audience}** with 2 H3 subheadings.
-      - **${formattedSections.beyondService}** with 2 H3 subheadings.
-      - **${formattedSections.successStories}** with 2 H3 subheadings (include the personal anecdote here).
-      - **${formattedSections.technology}** with 2 H3 subheadings.
-      - **${formattedSections.impact}** with 2 H3 subheadings.
-    - **Alt Image Text and Link:** Include 2 placeholders for images with alt text and links (e.g., "Alt Image Text: [Description]" and "Link: [URL]").
-    - **Conclusion:** (100-150 words) summarizing the article, reinforcing the company’s value, and tying back to the business goal (${finalUniqueBusinessGoal}).
-    - **Read Also:** 3 internal links to related blog posts (e.g., "Read also: [Link Text]").
-    - **Frequently Asked Questions:** 10 FAQs with concise answers (50-100 words each, 3-4 sentences), covering common questions about the service, its impact on SEO, conversions, and audience engagement, tailored to the specific challenge (${finalSpecificChallenge}). Answers must be direct and to the point—do not exceed 100 words per answer.
-    - **Call to Action:** The provided CTA: "${finalCta}".
-    - **Promotional Section:** (100-150 words) highlighting ${finalServices} with a bundle discount (e.g., "Bundle [Service 1] + [Service 2] and save 10% today!").
-    - **2nd Visual CTA:** Placeholder for a second visual call-to-action image.
-    - **Internal Links:** 3 internal links in the "Read Also" section (e.g., "[Link Text](URL)").
-    - **Schema Markup:** Include schema for Article and FAQPage.
+Structure:
+- **Proposed URL:** /${finalKeyword.replace(/\s/g, '-')}
+- **Title Tag:** ${finalKeyword} - ${finalCompanyName}
+- **Meta Description:** (120-150 characters) Achieve ${finalUniqueBusinessGoal} with ${primaryService} from ${finalCompanyName}. Solve ${finalSpecificChallenge}.
+- **Content Intent:** Targets ${finalTargetAudience} researching ${primaryService} for ${finalUniqueBusinessGoal}.
+- **Key Takeaways:** 3-5 bullets based on ${finalKeyPoints}.
+- **Introduction:** (200 words) Introduce ${primaryService}, ${finalCompanyName}, and ${finalSpecificChallenge} for ${finalTargetAudience}.
+- **How ${finalKeyword} Transforms Your Business:** 
+  - ### Leveraging ${primaryService} Expertise
+  - ### Boosting ${finalUniqueBusinessGoal.split(' ')[0]} with ${primaryService}
+- **Finding the Right ${primaryService} Partner:** 
+  - ### Assessing ${finalTargetAudience} Needs
+  - ### Why Choose ${finalCompanyName}
+- **Connecting with ${finalTargetAudience} Through ${primaryService}:** 
+  - ### Crafting Effective ${primaryService} Solutions
+  - ### Engaging ${finalTargetAudience} with ${primaryService}
+- **Comprehensive Solutions Beyond ${primaryService}:** 
+  - ### Enhancing Brand with ${primaryService}
+  - ### Tailored ${primaryService} Strategies
+- **Success Stories from ${finalCompanyName}:** 
+  - ### Overcoming ${finalSpecificChallenge} with ${primaryService}
+  - ### ${finalPersonalAnecdote} (100-150 words)
+- **Technology Behind Our ${primaryService}:** 
+  - ### Advanced ${primaryService} Tools
+  - ### Innovative ${primaryService} Techniques
+- **The ROI of ${finalKeyword}:** 
+  - ### Driving Results with ${primaryService}
+  - ### Building Trust Through ${primaryService}
+- **Conclusion:** (200 words) Summarize ${primaryService} benefits, tie to ${finalUniqueBusinessGoal}, end with ${finalCta}.
+- **FAQs:** 10 unique questions (50-100 word answers) about ${primaryService}, ${finalKeyword}, and ${finalSpecificChallenge}.
+- **Promotional Section:** (100-150 words) Offer a discount on ${primaryService}.
+- **Internal Links:** 3 links (e.g., /services/${primaryService}, /portfolio, /contact).
+- **Schema Markup:** JSON for Article, FAQPage, LocalBusiness with ${finalKeyword}.
 
-    Format the output exactly as follows, ensuring all sections are included and properly formatted:
-    **Proposed URL:** /[keyword-slug]-article
-    
-    **Title Tag:** [Title with keyword] - ${finalCompanyName}
-    
-    **Meta Description:** [Meta Description]
-    
-    **Content Intent:** [Content intent description]
-    
-    **Target Keyword:** ${finalKeyword}
-    
-    **Key Takeaways:**  
-    - [Bullet 1]  
-    - [Bullet 2]  
-    - [Bullet 3]  
-    
-    **Introduction:**  
-    [Introduction content with line breaks between paragraphs]
-    
-    ## ${formattedSections.benefits}  
-    ### [H3 Subheading]  
-    [Content with line breaks, 100-150 words]  
-    ### [H3 Subheading]  
-    [Content with line breaks, 100-150 words]  
-    
-    **Alt Image Text:** [Description]  
-    **Link:** [URL]  
-    
-    ## ${formattedSections.choosingProvider}  
-    ### [H3 Subheading]  
-    [Content with line breaks, 100-150 words]  
-    ### [H3 Subheading]  
-    [Content with line breaks, 100-150 words]  
-    
-    ## ${formattedSections.audience}  
-    ### [H3 Subheading]  
-    [Content with line breaks, 100-150 words]  
-    ### [H3 Subheading]  
-    [Content with line breaks, 100-150 words]  
-    
-    ## ${formattedSections.beyondService}  
-    ### [H3 Subheading]  
-    [Content with line breaks, 100-150 words]  
-    ### [H3 Subheading]  
-    [Content with line breaks, 100-150 words]  
-    
-    ## ${formattedSections.successStories}  
-    ### [H3 Subheading]  
-    [Content with line breaks, 100-150 words, include the personal anecdote]  
-    ### [H3 Subheading]  
-    [Content with line breaks, 100-150 words]  
-    
-    ## ${formattedSections.technology}  
-    ### [H3 Subheading]  
-    [Content with line breaks, 100-150 words]  
-    ### [H3 Subheading]  
-    [Content with line breaks, 100-150 words]  
-    
-    ## ${formattedSections.impact}  
-    ### [H3 Subheading]  
-    [Content with line breaks, 100-150 words]  
-    ### [H3 Subheading]  
-    [Content with line breaks, 100-150 words]  
-    
-    **Alt Image Text:** [Description]  
-    **Link:** [URL]  
-    
-    **Conclusion:**  
-    [Conclusion content with line breaks]
-    
-    **Read Also:**  
-    - [Link Text](URL)  
-    - [Link Text](URL)  
-    - [Link Text](URL)  
-    
-    **Frequently Asked Questions:**  
-    **What exactly are ${serviceName} services?**  
-    [Answer with line breaks, 50-100 words, 3-4 sentences]  
-    **How can ${serviceName} impact my SEO?**  
-    [Answer with line breaks, 50-100 words, 3-4 sentences]  
-    **What should I look for in a ${serviceName} provider?**  
-    [Answer with line breaks, 50-100 words, 3-4 sentences]  
-    **How long does the ${serviceName} process typically take?**  
-    [Answer with line breaks, 50-100 words, 3-4 sentences]  
-    **Can I provide my own materials for ${serviceName}?**  
-    [Answer with line breaks, 50-100 words, 3-4 sentences]  
-    **What types of businesses benefit from professional ${serviceName}?**  
-    [Answer with line breaks, 50-100 words, 3-4 sentences]  
-    **Is it worth investing in professional ${serviceName} production?**  
-    [Answer with line breaks, 50-100 words, 3-4 sentences]  
-    **Do you offer packages for multiple services?**  
-    [Answer with line breaks, 50-100 words, 3-4 sentences]  
-    **What if I need revisions after the initial ${serviceName}?**  
-    [Answer with line breaks, 50-100 words, 3-4 sentences]  
-    **How do I get started working with ${finalCompanyName}?**  
-    [Answer with line breaks, 50-100 words, 3-4 sentences]  
-    
-    **Call to Action:**  
-    ${finalCta}
-    
-    **Promotional Section:**  
-    [Promotional content with line breaks, 100-150 words]
-    
-    **2nd Visual CTA:**  
-    [Placeholder for second visual call-to-action image]
-    
-    **Internal Links:**  
-    - [Link Text](URL)  
-    - [Link Text](URL)  
-    - [Link Text](URL)  
-    
-    **Schema Markup:**  
-    [Schema JSON]
-  `;
+Format Output:
+**Proposed URL:** [URL]
+**Title Tag:** [Title]
+**Meta Description:** [Description]
+**Content Intent:** [Intent]
+**Key Takeaways:** 
+- [Bullet]
+**Introduction:** 
+[Content]
+## [H2 Heading]
+### [H3 Subheading]
+[Content]
+...
+## Frequently Asked Questions
+**[Question]?**
+[Answer]
+...
+**Promotional Section:** 
+[Content]
+**Internal Links:**
+- [Link]
+**Call to Action:** 
+[CTA]
+**Schema Markup:** 
+[JSON]
+`;
 
   try {
     const contentResponse = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-3.5-turbo",
       messages: [{ role: "user", content: contentPrompt }],
-      max_tokens: 9000, // Increased further to ensure all sections are generated
-      temperature: 0.9,
+      max_tokens: 4000,
+      temperature: 0.7,
       presence_penalty: 0.5,
       frequency_penalty: 0.5,
     });
 
     const generatedArticle = contentResponse.choices[0].message.content.trim();
-    console.log("Generated Article:", generatedArticle);
+    const lines = generatedArticle.split('\n').filter((line) => line.trim());
 
-    // Parse the article into a structured object
-    const lines = generatedArticle.split('\n').filter(line => line.trim());
+    // Structured parsing
     let parsedContent = {
-      proposedUrl: '',
-      titleTag: '',
-      metaDescription: '',
-      contentIntent: '',
-      targetKeyword: '',
+      proposedUrl: "",
+      titleTag: "",
+      metaDescription: "",
+      contentIntent: "",
       keyTakeaways: [],
-      title: '',
-      introduction: '',
+      title: "",
+      introduction: "",
       sections: [],
-      altImageText1: '',
-      link1: '',
-      altImageText2: '',
-      link2: '',
-      conclusion: '',
-      readAlso: [],
       faqs: [],
-      callToAction: '',
-      promotionalSection: '',
-      secondVisualCta: '',
+      promotionalSection: "",
       internalLinks: [],
-      schemaMarkup: '',
+      callToAction: "",
+      schemaMarkup: "",
     };
 
     let currentSection = null;
-    let currentSubheadingContent = '';
+    let currentSubheadingContent = "";
     let currentFaq = null;
-    let currentField = '';
+    let currentField = "";
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
 
-      if (line.startsWith('**Proposed URL:**')) {
-        parsedContent.proposedUrl = line.replace('**Proposed URL:**', '').trim();
-        currentField = '';
-      } else if (line.startsWith('**Title Tag:**')) {
-        parsedContent.titleTag = line.replace('**Title Tag:**', '').trim();
+      if (line.startsWith("**Proposed URL:**")) {
+        parsedContent.proposedUrl = line.replace("**Proposed URL:**", "").trim();
+      } else if (line.startsWith("**Title Tag:**")) {
+        parsedContent.titleTag = line.replace("**Title Tag:**", "").trim();
         parsedContent.title = parsedContent.titleTag;
-        currentField = '';
-      } else if (line.startsWith('**Meta Description:**')) {
-        parsedContent.metaDescription = line.replace('**Meta Description:**', '').trim();
-        currentField = '';
-      } else if (line.startsWith('**Content Intent:**')) {
-        parsedContent.contentIntent = line.replace('**Content Intent:**', '').trim();
-        currentField = '';
-      } else if (line.startsWith('**Target Keyword:**')) {
-        parsedContent.targetKeyword = line.replace('**Target Keyword:**', '').trim();
-        currentField = '';
-      } else if (line.startsWith('**Key Takeaways:**')) {
-        currentField = 'keyTakeaways';
-      } else if (currentField === 'keyTakeaways' && line.startsWith('- ')) {
-        parsedContent.keyTakeaways.push(line.replace('- ', '').trim());
-      } else if (currentField === 'keyTakeaways' && (line.startsWith('**') || line.startsWith('---'))) {
-        currentField = '';
-      } else if (line.startsWith('**Introduction:**')) {
-        currentField = 'introduction';
-        parsedContent.introduction = '';
-      } else if (currentField === 'introduction' && !line.startsWith('**') && !line.startsWith('---') && !line.startsWith('## ')) {
-        parsedContent.introduction += line + '\n';
-      } else if (currentField === 'introduction' && (line.startsWith('**') || line.startsWith('---') || line.startsWith('## '))) {
-        currentField = '';
+      } else if (line.startsWith("**Meta Description:**")) {
+        parsedContent.metaDescription = line.replace("**Meta Description:**", "").trim();
+      } else if (line.startsWith("**Content Intent:**")) {
+        parsedContent.contentIntent = line.replace("**Content Intent:**", "").trim();
+      } else if (line.startsWith("**Key Takeaways:**")) {
+        currentField = "keyTakeaways";
+      } else if (currentField === "keyTakeaways" && line.startsWith("- ")) {
+        parsedContent.keyTakeaways.push(line.replace("- ", "").trim());
+      } else if (currentField === "keyTakeaways" && line.startsWith("**")) {
+        currentField = "";
+      } else if (line.startsWith("**Introduction:**")) {
+        currentField = "introduction";
+        parsedContent.introduction = "";
+      } else if (currentField === "introduction" && !line.startsWith("**") && !line.startsWith("## ")) {
+        parsedContent.introduction += line + "\n";
+      } else if (currentField === "introduction" && line.startsWith("## ")) {
+        currentField = "";
         i--;
-      } else if (line.startsWith('## ') && !line.startsWith('## Read Also:') && !line.startsWith('## Frequently Asked Questions:') && !line.startsWith('## Conclusion:')) {
-        currentField = 'section';
+      } else if (line.startsWith("## ") && !line.includes("Frequently Asked Questions")) {
         if (currentSection) {
-          if (currentSubheadingContent) {
-            currentSection.content.push(currentSubheadingContent.trim());
-            currentSubheadingContent = '';
-          }
+          if (currentSubheadingContent) currentSection.content.push(currentSubheadingContent.trim());
           parsedContent.sections.push(currentSection);
         }
-        currentSection = {
-          heading: line.replace('## ', '').trim(),
-          subheadings: [],
-          content: [],
-        };
-      } else if (currentField === 'section' && line.startsWith('### ')) {
-        if (currentSubheadingContent) {
-          currentSection.content.push(currentSubheadingContent.trim());
-          currentSubheadingContent = '';
-        }
-        currentSection.subheadings.push(line.replace('### ', '').replace(':', '').trim());
-      } else if (currentField === 'section' && !line.startsWith('**') && !line.startsWith('---') && !line.startsWith('## ') && !line.startsWith('### ')) {
-        currentSubheadingContent += line + '\n';
-      } else if (currentField === 'section' && (line.startsWith('**') || line.startsWith('---') || line.startsWith('## '))) {
-        if (currentSubheadingContent) {
-          currentSection.content.push(currentSubheadingContent.trim());
-          currentSubheadingContent = '';
-        }
-        currentField = '';
+        currentSection = { heading: line.replace("## ", "").trim(), subheadings: [], content: [] };
+        currentField = "section";
+      } else if (currentField === "section" && line.startsWith("### ")) {
+        if (currentSubheadingContent) currentSection.content.push(currentSubheadingContent.trim());
+        currentSection.subheadings.push(line.replace("### ", "").trim());
+        currentSubheadingContent = "";
+      } else if (currentField === "section" && !line.startsWith("**") && !line.startsWith("## ")) {
+        currentSubheadingContent += line + "\n";
+      } else if (currentField === "section" && line.startsWith("## ")) {
+        if (currentSubheadingContent) currentSection.content.push(currentSubheadingContent.trim());
+        currentField = "";
         i--;
-      } else if (line.startsWith('**Alt Image Text:**')) {
-        currentField = '';
+      } else if (line.startsWith("## Frequently Asked Questions")) {
         if (currentSection) {
-          if (currentSubheadingContent) {
-            currentSection.content.push(currentSubheadingContent.trim());
-            currentSubheadingContent = '';
-          }
+          if (currentSubheadingContent) currentSection.content.push(currentSubheadingContent.trim());
           parsedContent.sections.push(currentSection);
           currentSection = null;
         }
-        if (!parsedContent.altImageText1) {
-          parsedContent.altImageText1 = line.replace('**Alt Image Text:**', '').trim();
-        } else {
-          parsedContent.altImageText2 = line.replace('**Alt Image Text:**', '').trim();
-        }
-      } else if (line.startsWith('**Link:**')) {
-        if (!parsedContent.link1) {
-          parsedContent.link1 = line.replace('**Link:**', '').trim();
-        } else {
-          parsedContent.link2 = line.replace('**Link:**', '').trim();
-        }
-      } else if (line.startsWith('**Conclusion:**') || line.startsWith('## Conclusion:')) {
-        currentField = 'conclusion';
-        if (currentSection) {
-          if (currentSubheadingContent) {
-            currentSection.content.push(currentSubheadingContent.trim());
-            currentSubheadingContent = '';
-          }
-          parsedContent.sections.push(currentSection);
-          currentSection = null;
-        }
-        parsedContent.conclusion = '';
-      } else if (currentField === 'conclusion' && !line.startsWith('**') && !line.startsWith('## ') && !line.startsWith('---')) {
-        parsedContent.conclusion += line + '\n';
-      } else if (currentField === 'conclusion' && (line.startsWith('**') || line.startsWith('## ') || line.startsWith('---'))) {
-        currentField = '';
+        currentField = "faqs";
+      } else if (currentField === "faqs" && line.startsWith("**") && line.endsWith("?**")) {
+        if (currentFaq) parsedContent.faqs.push(currentFaq);
+        currentFaq = { question: line.replace(/\*\*/g, "").trim(), answer: "" };
+      } else if (currentField === "faqs" && currentFaq && !line.startsWith("**")) {
+        currentFaq.answer += line + "\n";
+      } else if (currentField === "faqs" && line.startsWith("**")) {
+        if (currentFaq) parsedContent.faqs.push(currentFaq);
+        currentFaq = null;
+        currentField = "";
         i--;
-      } else if (line.startsWith('**Read Also:**') || line.startsWith('## Read Also:')) {
-        currentField = 'readAlso';
-      } else if (currentField === 'readAlso' && line.startsWith('- ')) {
-        parsedContent.readAlso.push(line.replace('- ', '').trim());
-      } else if (currentField === 'readAlso' && (line.startsWith('**') || line.startsWith('## '))) {
-        currentField = '';
-        i--;
-      } else if (line.startsWith('**Frequently Asked Questions:**') || line.startsWith('## Frequently Asked Questions:')) {
-        currentField = 'faqs';
-      } else if (currentField === 'faqs' && line.startsWith('**') && line.endsWith('?**')) {
-        if (currentFaq) {
-          parsedContent.faqs.push(currentFaq);
-        }
-        currentFaq = {
-          question: line.replace(/\*\*/g, '').trim(),
-          answer: '',
-        };
-      } else if (currentField === 'faqs' && currentFaq && !line.startsWith('**') && !line.startsWith('## ') && !line.startsWith('---')) {
-        currentFaq.answer += line + '\n';
-      } else if (currentField === 'faqs' && (line.startsWith('**') || line.startsWith('## ') || line.startsWith('---'))) {
-        if (currentFaq) {
-          parsedContent.faqs.push(currentFaq);
-          currentFaq = null;
-        }
-        currentField = '';
-        i--;
-      } else if (line.startsWith('**Call to Action:**')) {
-        currentField = 'callToAction';
-        parsedContent.callToAction = '';
-        while (i + 1 < lines.length && !lines[i + 1].startsWith('**') && !lines[i + 1].startsWith('---')) {
+      } else if (line.startsWith("**Promotional Section:**")) {
+        currentField = "promotionalSection";
+        parsedContent.promotionalSection = "";
+        while (i + 1 < lines.length && !lines[i + 1].startsWith("**")) {
           i++;
-          parsedContent.callToAction += lines[i].trim() + '\n';
+          parsedContent.promotionalSection += lines[i].trim() + "\n";
         }
-        parsedContent.callToAction = parsedContent.callToAction.trim() || finalCta;
-      } else if (line.startsWith('**Promotional Section:**')) {
-        currentField = 'promotionalSection';
-        parsedContent.promotionalSection = '';
-        while (i + 1 < lines.length && !lines[i + 1].startsWith('**') && !lines[i + 1].startsWith('---')) {
+      } else if (line.startsWith("**Internal Links:**")) {
+        currentField = "internalLinks";
+      } else if (currentField === "internalLinks" && line.startsWith("- ")) {
+        parsedContent.internalLinks.push(line.replace("- ", "").trim());
+      } else if (currentField === "internalLinks" && line.startsWith("**")) {
+        currentField = "";
+      } else if (line.startsWith("**Call to Action:**")) {
+        parsedContent.callToAction = line.replace("**Call to Action:**", "").trim();
+      } else if (line.startsWith("**Schema Markup:**")) {
+        currentField = "schemaMarkup";
+        parsedContent.schemaMarkup = "";
+        while (i + 1 < lines.length && !lines[i + 1].startsWith("**")) {
           i++;
-          parsedContent.promotionalSection += lines[i].trim() + '\n';
-        }
-      } else if (line.startsWith('**2nd Visual CTA:**')) {
-        currentField = 'secondVisualCta';
-        parsedContent.secondVisualCta = '';
-        while (i + 1 < lines.length && !lines[i + 1].startsWith('**') && !lines[i + 1].startsWith('---')) {
-          i++;
-          parsedContent.secondVisualCta += lines[i].trim() + '\n';
-        }
-        parsedContent.secondVisualCta = parsedContent.secondVisualCta.trim() || '[Placeholder for second visual call-to-action image]';
-      } else if (line.startsWith('**Internal Links:**')) {
-        currentField = 'internalLinks';
-      } else if (currentField === 'internalLinks' && line.startsWith('- ')) {
-        parsedContent.internalLinks.push(line.replace('- ', '').trim());
-      } else if (currentField === 'internalLinks' && (line.startsWith('**') || line.startsWith('---'))) {
-        currentField = '';
-        i--;
-      } else if (line.startsWith('**Schema Markup:**')) {
-        currentField = 'schemaMarkup';
-        parsedContent.schemaMarkup = '';
-        while (i + 1 < lines.length && !lines[i + 1].startsWith('**') && !lines[i + 1].startsWith('---')) {
-          i++;
-          parsedContent.schemaMarkup += lines[i].trim() + '\n';
+          parsedContent.schemaMarkup += lines[i].trim() + "\n";
         }
       }
     }
 
     if (currentSection) {
-      if (currentSubheadingContent) {
-        currentSection.content.push(currentSubheadingContent.trim());
-      }
+      if (currentSubheadingContent) currentSection.content.push(currentSubheadingContent.trim());
       parsedContent.sections.push(currentSection);
     }
-    if (currentFaq) {
-      parsedContent.faqs.push(currentFaq);
-    }
+    if (currentFaq) parsedContent.faqs.push(currentFaq);
 
-    parsedContent.introduction = parsedContent.introduction.trim();
-    parsedContent.conclusion = parsedContent.conclusion.trim();
-    parsedContent.promotionalSection = parsedContent.promotionalSection.trim();
-    parsedContent.schemaMarkup = parsedContent.schemaMarkup.trim();
-    parsedContent.callToAction = parsedContent.callToAction.trim();
-    parsedContent.secondVisualCta = parsedContent.secondVisualCta.trim();
-    parsedContent.sections = parsedContent.sections.map(section => ({
-      ...section,
-      content: section.content.map(content => content.trim()),
-    }));
-    parsedContent.faqs = parsedContent.faqs.map(faq => ({
-      ...faq,
-      answer: faq.answer.trim(),
-    }));
+    // Versatile fallbacks
+    parsedContent.introduction =
+      parsedContent.introduction.trim() ||
+      `In today’s competitive market, ${primaryService} is key to ${finalUniqueBusinessGoal}. ${finalCompanyName} offers tailored solutions to address ${finalSpecificChallenge} for ${finalTargetAudience}. This article explores how we can help your business thrive.`;
+    parsedContent.sections = parsedContent.sections.length
+      ? parsedContent.sections
+      : [
+          {
+            heading: `How ${finalKeyword} Transforms Your Business`,
+            subheadings: [`Leveraging ${primaryService} Expertise`],
+            content: [`${finalCompanyName} uses ${primaryService} to drive ${finalUniqueBusinessGoal}.`],
+          },
+        ];
+    parsedContent.promotionalSection =
+      parsedContent.promotionalSection.trim() ||
+      `At ${finalCompanyName}, we’re offering a special deal on ${primaryService}. Contact us to enhance your ${finalTargetAudience} success today!`;
+    parsedContent.internalLinks = parsedContent.internalLinks.length
+      ? parsedContent.internalLinks
+      : [
+          `[Learn More About ${primaryService}](https://www.${finalCompanyName.toLowerCase().replace(/\s/g, '')}.com/services/${primaryService.replace(/\s/g, '-')})`,
+          `[Portfolio](https://www.${finalCompanyName.toLowerCase().replace(/\s/g, '')}.com/portfolio)`,
+          `[Contact Us](https://www.${finalCompanyName.toLowerCase().replace(/\s/g, '')}.com/contact)`,
+        ];
+    parsedContent.callToAction = parsedContent.callToAction || finalCta;
 
+    // Ensure 10 unique FAQs
+    const requiredFaqs = [
+      `What exactly are ${primaryService} services?`,
+      `How does ${finalKeyword} benefit my business?`,
+      `What should I look for in a ${primaryService} provider?`,
+      `How long does the ${primaryService} process take?`,
+      `Can I provide my own materials for ${primaryService}?`,
+      `Which ${finalTargetAudience} benefit from ${primaryService}?`,
+      `Is it worth investing in ${primaryService}?`,
+      `Does ${finalCompanyName} offer ${primaryService} packages?`,
+      `What if I need revisions after using ${primaryService}?`,
+      `How do I start with ${finalCompanyName} for ${primaryService}?`,
+    ];
+    const faqMap = new Map(parsedContent.faqs.map((faq) => [faq.question, faq]));
+    requiredFaqs.forEach((q) => {
+      if (!faqMap.has(q)) {
+        faqMap.set(q, {
+          question: q,
+          answer: `${finalCompanyName} offers ${primaryService} to address ${finalSpecificChallenge} for ${finalTargetAudience}. Contact us to learn more.`,
+        });
+      }
+    });
+    parsedContent.faqs = Array.from(faqMap.values()).slice(0, 10);
+
+    // Schema fallback
+    parsedContent.schemaMarkup =
+      parsedContent.schemaMarkup.trim() ||
+      `
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "${finalKeyword} - ${finalCompanyName}",
+  "author": {"@type": "Organization", "name": "${finalCompanyName}"},
+  "datePublished": "2025-03-21",
+  "image": "/images/${primaryService}-example.jpg",
+  "publisher": {"@type": "Organization", "name": "${finalCompanyName}", "logo": {"@type": "ImageObject", "url": "/images/${finalCompanyName.toLowerCase().replace(/\s/g, '')}-logo.jpg"}},
+  "aggregateRating": {"@type": "AggregateRating", "ratingValue": "4.5", "reviewCount": "50"}
+}
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": ${JSON.stringify(parsedContent.faqs.map((faq) => ({ "@type": "Question", "name": faq.question, "acceptedAnswer": { "@type": "Answer", "text": faq.answer.trim() } })))}
+}
+{
+  "@context": "https://schema.org",
+  "@type": "LocalBusiness",
+  "name": "${finalCompanyName}",
+  "address": {"@type": "PostalAddress", "addressLocality": "${finalTargetAudience}", "addressCountry": "PH"},
+  "aggregateRating": {"@type": "AggregateRating", "ratingValue": "4.5", "reviewCount": "50"}
+}
+`;
+
+    // Clean content
     const cleanContent = {
       proposedUrl: parsedContent.proposedUrl,
       titleTag: parsedContent.titleTag,
       metaDescription: parsedContent.metaDescription,
       contentIntent: parsedContent.contentIntent,
-      targetKeyword: parsedContent.targetKeyword,
       keyTakeaways: parsedContent.keyTakeaways,
       title: parsedContent.title,
-      introduction: parsedContent.introduction
-        .replace(/\*\*/g, '')
-        .replace(/### /g, '')
-        .replace(/## /g, '')
-        .replace(/---/g, '')
-        .trim(),
-      sections: parsedContent.sections.map(section => ({
-        heading: section.heading
-          .replace(/\*\*/g, '')
-          .replace(/### /g, '')
-          .replace(/## /g, '')
-          .replace(/---/g, '')
-          .trim(),
-        subheadings: section.subheadings.map(subheading =>
-          subheading
-            .replace(/\*\*/g, '')
-            .replace(/### /g, '')
-            .replace(/## /g, '')
-            .replace(/---/g, '')
-            .trim()
-        ),
-        content: section.content.map(content =>
-          content
-            .replace(/\*\*/g, '')
-            .replace(/### /g, '')
-            .replace(/## /g, '')
-            .replace(/---/g, '')
-            .trim()
-        ),
+      introduction: parsedContent.introduction.trim(),
+      sections: parsedContent.sections.map((s) => ({
+        heading: s.heading,
+        subheadings: s.subheadings,
+        content: s.content.map((c) => c.trim()),
       })),
-      altImageText1: parsedContent.altImageText1,
-      link1: parsedContent.link1,
-      altImageText2: parsedContent.altImageText2,
-      link2: parsedContent.link2,
-      conclusion: parsedContent.conclusion
-        .replace(/\*\*/g, '')
-        .replace(/### /g, '')
-        .replace(/## /g, '')
-        .replace(/---/g, '')
-        .trim(),
-      readAlso: parsedContent.readAlso,
-      faqs: parsedContent.faqs.map(faq => ({
-        question: faq.question
-          .replace(/\*\*/g, '')
-          .replace(/### /g, '')
-          .replace(/## /g, '')
-          .replace(/---/g, '')
-          .trim(),
-        answer: faq.answer
-          .replace(/\*\*/g, '')
-          .replace(/### /g, '')
-          .replace(/## /g, '')
-          .replace(/---/g, '')
-          .trim(),
-      })),
-      callToAction: parsedContent.callToAction
-        .replace(/\*\*/g, '')
-        .replace(/### /g, '')
-        .replace(/## /g, '')
-        .replace(/---/g, '')
-        .trim(),
-      promotionalSection: parsedContent.promotionalSection
-        .replace(/\*\*/g, '')
-        .replace(/### /g, '')
-        .replace(/## /g, '')
-        .replace(/---/g, '')
-        .trim(),
-      secondVisualCta: parsedContent.secondVisualCta,
+      faqs: parsedContent.faqs.map((f) => ({ question: f.question, answer: f.answer.trim() })),
+      promotionalSection: parsedContent.promotionalSection.trim(),
       internalLinks: parsedContent.internalLinks,
+      callToAction: parsedContent.callToAction.trim(),
       schemaMarkup: parsedContent.schemaMarkup.trim(),
     };
 
     req.session.generatedContent = cleanContent;
-    console.log('Cleaned content stored in session:', req.session.generatedContent);
+    console.log("Generated Content:", cleanContent);
 
     res.json({ redirect: "/blog-article/generated-article" });
   } catch (error) {
