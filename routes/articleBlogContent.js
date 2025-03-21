@@ -4,6 +4,7 @@ const OpenAI = require("openai");
 const axios = require('axios');
 const Business = require('../models/Business');
 const { suggestKeywordsWithOpenAI } = require('../utils/keywordSuggester');
+const { jsonrepair } = require('jsonrepair');
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -174,10 +175,22 @@ router.get("/content-details", async (req, res) => {
       suggestedPrimaryKeywords: [],
       suggestedSecondaryKeywords: [],
       suggestedKeyPoints: [],
+      suggestedUniqueBusinessGoal: '',
+      suggestedSpecificChallenge: '',
+      suggestedPersonalAnecdote: '',
     });
   }
 
   const businessDetails = req.session.businessDetails || req.session.tempBusinessDetails;
+  console.log("Business Details in /content-details:", businessDetails); // Debug log
+
+  // Ensure focusService is set
+  if (!businessDetails.focusService) {
+    console.warn("focusService not set, defaulting to first service.");
+    businessDetails.focusService = businessDetails.services?.split(',').map(s => s.trim())[0] || "business solutions";
+  }
+
+  // Get suggestions from OpenAI
   const suggestions = await suggestKeywordsWithOpenAI(businessDetails);
 
   res.json({
@@ -197,17 +210,23 @@ router.get("/content-details", async (req, res) => {
     suggestedPrimaryKeywords: suggestions.primaryKeywords,
     suggestedSecondaryKeywords: suggestions.secondaryKeywords,
     suggestedKeyPoints: suggestions.keyPoints,
+    suggestedUniqueBusinessGoal: suggestions.uniqueBusinessGoal, // New field
+    suggestedSpecificChallenge: suggestions.specificChallenge, // New field
+    suggestedPersonalAnecdote: suggestions.personalAnecdote, // New field
     error: null,
   });
 });
 
 
 // Step 5: Generate the SEO-optimized article
+
+
 router.post("/generate-content-article", async (req, res) => {
   const {
     companyName,
     description,
     services,
+    focusService,
     targetAudience,
     brandTone,
     keyword,
@@ -220,401 +239,142 @@ router.post("/generate-content-article", async (req, res) => {
     personalAnecdote,
   } = req.body;
 
-  // Fallbacks with dynamic, versatile defaults
-  const finalCompanyName =
-    companyName ||
-    req.session.businessDetails?.companyName ||
-    req.session.tempBusinessDetails?.companyName ||
-    "Your Company"; // Neutral default
-  const finalServices =
-    services ||
-    req.session.extractedBranding?.services ||
-    req.session.businessDetails?.services ||
-    "custom business solutions"; // Broad, adaptable default
-  const finalDescription =
-    description ||
-    req.session.extractedBranding?.description ||
-    req.session.businessDetails?.description ||
-    `${finalCompanyName} provides ${finalServices} to help businesses achieve their goals.`; // Dynamic fallback using services
-  const finalTargetAudience =
-    targetAudience ||
-    req.session.tempBusinessDetails?.targetAudience ||
-    req.session.businessDetails?.targetAudience ||
-    "businesses seeking growth"; // Neutral default
-  const finalBrandTone =
-    brandTone ||
-    req.session.tempBusinessDetails?.brandTone ||
-    req.session.businessDetails?.brandTone ||
-    "professional";
-  const finalUniqueBusinessGoal =
-    uniqueBusinessGoal ||
-    req.session.tempBusinessDetails?.uniqueBusinessGoal ||
-    "enhance business success";
-  const finalSpecificChallenge =
-    specificChallenge ||
-    req.session.tempBusinessDetails?.specificChallenge ||
-    "competing in a crowded market";
-  const finalPersonalAnecdote =
-    personalAnecdote ||
-    req.session.tempBusinessDetails?.personalAnecdote ||
-    "A client saw significant improvement after using our services";
-
-  const businessDetails = {
-    companyName: finalCompanyName,
-    description: finalDescription,
-    services: finalServices,
-    targetAudience: finalTargetAudience,
-    uniqueBusinessGoal: finalUniqueBusinessGoal,
-    specificChallenge: finalSpecificChallenge,
-    personalAnecdote: finalPersonalAnecdote,
-  };
-  const suggestions = await suggestKeywordsWithOpenAI(businessDetails); // Assuming this exists
-  const finalKeyword =
-    keyword || suggestions.primaryKeywords[0] || "business growth solutions"; // Neutral default
-  const finalSecondaryKeywords =
-    secondaryKeywords ||
-    suggestions.secondaryKeywords ||
-    ["business strategy", "customer engagement", "market visibility"]; // Generic defaults
-  const finalArticleLength = articleLength || "1500-2000 words";
-  const finalKeyPoints =
-    keyPoints ||
-    suggestions.keyPoints ||
-    [
-      `How ${finalKeyword} drives ${finalUniqueBusinessGoal.split(' ')[0]}`,
-      `Addressing ${finalSpecificChallenge} with ${finalCompanyName}`,
-      `Benefits for ${finalTargetAudience}`,
-    ];
-  const finalCta = cta || "Contact us to boost your business today!";
-
-  // Extract primary service from keyword or services for focus
-  const primaryService = finalKeyword.split(' ')[0] === "professional" 
-    ? finalKeyword.split(' ')[1] 
-    : finalKeyword.split(' ')[0] || finalServices.split(',')[0].trim(); // Fallback to first service if keyword is vague
-
-  // Updated prompt with versatile fallback
   const contentPrompt = `
-You are an expert SEO content writer. Write a professional, SEO-optimized blog article for the following business. Use a ${finalBrandTone} tone, avoiding casual language or unrelated topics.
+You are a top-tier SEO content strategist. Generate a highly optimized blog article as a JSON object for the provided business details. All fields must be fully AI-generated based on the input, with no hardcoded fallbacks. The content must be SEO-optimized, engaging, and at least 1200-1500 words long.
 
-Business Details:
-- Company Name: ${finalCompanyName}
-- Description: ${finalDescription}
-- Primary Service (Focus): ${primaryService} (derived from "${finalKeyword}" or first listed service)
-- All Services (Context Only): ${finalServices}
-- Target Audience: ${finalTargetAudience}
-- Primary Keyword: ${finalKeyword}
-- Secondary Keywords: ${finalSecondaryKeywords.join(', ')}
-- Unique Business Goal: ${finalUniqueBusinessGoal}
-- Specific Challenge: ${finalSpecificChallenge}
-- Personal Anecdote: ${finalPersonalAnecdote}
-- Article Length: ${finalArticleLength}
-- CTA: ${finalCta}
+**Business Details:**
+- Company Name: ${companyName || "Edit Edge Multimedia"}
+- Description: ${description || "A multimedia company specializing in innovative digital solutions"}
+- Services: ${services || "video editing, graphic design, 3D art, web development, digital marketing"}
+- Focus Service: ${focusService || "Digital Marketing"}
+- Target Audience: ${targetAudience || "e-commerce businesses and SaaS startups"}
+- Brand Tone: ${brandTone || "professional yet conversational"}
+- Primary Keyword: ${keyword || "digital marketing for e-commerce"}
+- Secondary Keywords: ${secondaryKeywords?.join(", ") || "real estate marketing strategies, e-commerce growth, social media marketing"}
+- Article Length: ${articleLength || "1200-1500 words"}
+- Key Points: ${keyPoints?.join(", ") || "Increase visibility, Boost conversions, Enhance trust"}
+- CTA: ${cta || "Contact Edit Edge Multimedia to skyrocket your online presence!"}
+- Unique Business Goal: ${uniqueBusinessGoal || "Increase conversion rates through engaging digital strategies"}
+- Specific Challenge: ${specificChallenge || "Overcoming low online visibility in competitive markets"}
+- Personal Anecdote: ${personalAnecdote || "A client saw a 50% sales boost after our digital marketing overhaul"}
 
-Guidelines:
-- Focus EXCLUSIVELY on ${primaryService} (e.g., "${primaryService}" from "${finalKeyword}" or first service in "${finalServices}"). Do NOT discuss other services unless directly supporting ${primaryService}.
-- Use "${finalKeyword}" 5-7 times naturally (intro, each section, conclusion).
-- Use each secondary keyword 2-3 times to reinforce ${finalKeyword}.
-- Mention ${finalCompanyName} 3-5 times for brand reinforcement (intro, success stories, conclusion).
-- Target middle-of-the-funnel ${finalTargetAudience} researching ${primaryService} to achieve ${finalUniqueBusinessGoal}.
-- Include 2-3 internal links (e.g., /services/${primaryService.replace(/\s/g, '-')}) and 1-2 external links to authoritative sources (e.g., https://www.forbes.com for business topics).
-- Write concise paragraphs (50-70 words) with clear topic sentences.
-- Distribute content: 200-word intro, 300-400 words per section, 200-word conclusion.
-- Address ${finalSpecificChallenge} in intro, success stories, and FAQs with ${primaryService} solutions.
-- Base content on: ${finalKeyPoints.join(', ')}.
+**SEO Guidelines:**
+- Use the primary keyword ("${keyword || "digital marketing for e-commerce"}") 5-7 times naturally across the article, including:
+  - Within the first 100 words of the introduction.
+  - At least 2-3 times in the body (sections).
+  - In at least one subheading.
+- Incorporate secondary keywords ("${secondaryKeywords?.join(", ") || "real estate marketing strategies, e-commerce growth, social media marketing"}") 2-3 times each where relevant.
+- Optimize for Google Featured Snippets with concise, question-based subheadings and bullet points.
+- Mention the company name 3-5 times naturally.
+- Include 3-5 internal links (e.g., /services/[focus-service], /about, /contact).
+- Ensure readability: Use a conversational tone, short sentences, and bullet points where applicable.
+- Add image suggestions with SEO-optimized alt text (e.g., "Digital marketing infographic for e-commerce growth").
 
-Structure:
-- **Proposed URL:** /${finalKeyword.replace(/\s/g, '-')}
-- **Title Tag:** ${finalKeyword} - ${finalCompanyName}
-- **Meta Description:** (120-150 characters) Achieve ${finalUniqueBusinessGoal} with ${primaryService} from ${finalCompanyName}. Solve ${finalSpecificChallenge}.
-- **Content Intent:** Targets ${finalTargetAudience} researching ${primaryService} for ${finalUniqueBusinessGoal}.
-- **Key Takeaways:** 3-5 bullets based on ${finalKeyPoints}.
-- **Introduction:** (200 words) Introduce ${primaryService}, ${finalCompanyName}, and ${finalSpecificChallenge} for ${finalTargetAudience}.
-- **How ${finalKeyword} Transforms Your Business:** 
-  - ### Leveraging ${primaryService} Expertise
-  - ### Boosting ${finalUniqueBusinessGoal.split(' ')[0]} with ${primaryService}
-- **Finding the Right ${primaryService} Partner:** 
-  - ### Assessing ${finalTargetAudience} Needs
-  - ### Why Choose ${finalCompanyName}
-- **Connecting with ${finalTargetAudience} Through ${primaryService}:** 
-  - ### Crafting Effective ${primaryService} Solutions
-  - ### Engaging ${finalTargetAudience} with ${primaryService}
-- **Comprehensive Solutions Beyond ${primaryService}:** 
-  - ### Enhancing Brand with ${primaryService}
-  - ### Tailored ${primaryService} Strategies
-- **Success Stories from ${finalCompanyName}:** 
-  - ### Overcoming ${finalSpecificChallenge} with ${primaryService}
-  - ### ${finalPersonalAnecdote} (100-150 words)
-- **Technology Behind Our ${primaryService}:** 
-  - ### Advanced ${primaryService} Tools
-  - ### Innovative ${primaryService} Techniques
-- **The ROI of ${finalKeyword}:** 
-  - ### Driving Results with ${primaryService}
-  - ### Building Trust Through ${primaryService}
-- **Conclusion:** (200 words) Summarize ${primaryService} benefits, tie to ${finalUniqueBusinessGoal}, end with ${finalCta}.
-- **FAQs:** 10 unique questions (50-100 word answers) about ${primaryService}, ${finalKeyword}, and ${finalSpecificChallenge}.
-- **Promotional Section:** (100-150 words) Offer a discount on ${primaryService}.
-- **Internal Links:** 3 links (e.g., /services/${primaryService}, /portfolio, /contact).
-- **Schema Markup:** JSON for Article, FAQPage, LocalBusiness with ${finalKeyword}.
+**Output Format (JSON):**
+{
+  "title": "SEO-optimized title (under 60 chars) with primary keyword",
+  "metaDescription": "150-160 char SEO meta description with primary keyword",
+  "proposedUrl": "/[focus-service]-[target-audience]-[secondary-keyword], e.g., /digital-marketing-ecommerce-growth",
+  "introduction": "250-300 word intro addressing the specific challenge, using primary keyword in first 100 words",
+  "sections": [
+    {
+      "heading": "H2 with primary or secondary keyword",
+      "subheadings": ["H3 with keyword or question", "H3 with keyword or question"],
+      "content": ["300-400 words with keyword usage, stats, or examples", "300-400 words with keyword usage"]
+    },
+    {
+      "heading": "H2 targeting secondary keyword or real-world example",
+      "subheadings": ["H3 with actionable tip", "H3 with data insight"],
+      "content": ["300-400 words with case study or anecdote", "300-400 words with bullet points"]
+    }
+  ],
+  "keyTakeaways": ["Point 1 with keyword", "Point 2 with keyword", "Point 3"],
+  "faqs": [
+    {"question": "Question with primary keyword", "answer": "150-200 word answer with keyword"},
+    {"question": "Question with secondary keyword", "answer": "150-200 word answer with keyword"},
+    {"question": "Conversational question", "answer": "150-200 word answer"},
+    {"question": "Conversational question", "answer": "150-200 word answer"}
+  ],
+  "conclusion": "250-300 word conclusion reinforcing focus service, with primary keyword and CTA",
+  "internalLinks": ["/services/[focus-service]", "/about", "/contact", "/blog/[related-topic]"],
+  "schemaMarkup": "Valid JSON-LD string combining Article and FAQPage schema, with escaped quotes",
+  "images": [
+    {"url": "/images/[descriptive-name].jpg", "altText": "Primary keyword + descriptive text"}
+  ]
+}
 
-Format Output:
-**Proposed URL:** [URL]
-**Title Tag:** [Title]
-**Meta Description:** [Description]
-**Content Intent:** [Intent]
-**Key Takeaways:** 
-- [Bullet]
-**Introduction:** 
-[Content]
-## [H2 Heading]
-### [H3 Subheading]
-[Content]
-...
-## Frequently Asked Questions
-**[Question]?**
-[Answer]
-...
-**Promotional Section:** 
-[Content]
-**Internal Links:**
-- [Link]
-**Call to Action:** 
-[CTA]
-**Schema Markup:** 
-[JSON]
+**Structure:**
+1. Introduction: Address the specific challenge with primary keyword early.
+2. Section 1: How [Focus Service] Drives [Target Audience] Success (keyword-rich).
+3. Section 2: Optimizing [Secondary Keyword] for Growth (e.g., Social Media Marketing).
+4. Section 3: Real-World Success: Case Study (use personal anecdote).
+5. Section 4: Tools and Strategies for [Focus Service] (data-driven insights).
+6. Conclusion: Reinforce benefits with CTA.
+7. Key Takeaways: Bullet points with keywords.
+8. FAQs: 4 keyword-rich, conversational questions.
+9. Schema Markup: Article + FAQPage schema.
+10. Images: Suggest 1-2 visuals with alt text.
+
+**Instructions:**
+- Return a valid JSON object with no backticks, markdown, or extra text.
+- Use straight quotes (") and escape internal quotes with \\ (e.g., "She said \\"yes\\"").
+- Ensure content is 1200-1500 words total across sections.
+- Include stats, examples, or step-by-step tips to add depth.
+- SchemaMarkup must be a single-line string with escaped quotes, e.g., "{\\"@context\\": \\"https://schema.org\\"}".
+- Add an images array with at least one image suggestion.
 `;
 
   try {
     const contentResponse = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
+      model: "gpt-4o-mini",
       messages: [{ role: "user", content: contentPrompt }],
       max_tokens: 4000,
-      temperature: 0.7,
+      temperature: 0.6,
       presence_penalty: 0.5,
       frequency_penalty: 0.5,
     });
 
-    const generatedArticle = contentResponse.choices[0].message.content.trim();
-    const lines = generatedArticle.split('\n').filter((line) => line.trim());
+    let rawContent = contentResponse.choices[0].message.content.trim();
+    console.log("Raw AI Response:", rawContent);
 
-    // Structured parsing
-    let parsedContent = {
-      proposedUrl: "",
-      titleTag: "",
-      metaDescription: "",
-      contentIntent: "",
-      keyTakeaways: [],
-      title: "",
-      introduction: "",
-      sections: [],
-      faqs: [],
-      promotionalSection: "",
-      internalLinks: [],
-      callToAction: "",
-      schemaMarkup: "",
-    };
-
-    let currentSection = null;
-    let currentSubheadingContent = "";
-    let currentFaq = null;
-    let currentField = "";
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-
-      if (line.startsWith("**Proposed URL:**")) {
-        parsedContent.proposedUrl = line.replace("**Proposed URL:**", "").trim();
-      } else if (line.startsWith("**Title Tag:**")) {
-        parsedContent.titleTag = line.replace("**Title Tag:**", "").trim();
-        parsedContent.title = parsedContent.titleTag;
-      } else if (line.startsWith("**Meta Description:**")) {
-        parsedContent.metaDescription = line.replace("**Meta Description:**", "").trim();
-      } else if (line.startsWith("**Content Intent:**")) {
-        parsedContent.contentIntent = line.replace("**Content Intent:**", "").trim();
-      } else if (line.startsWith("**Key Takeaways:**")) {
-        currentField = "keyTakeaways";
-      } else if (currentField === "keyTakeaways" && line.startsWith("- ")) {
-        parsedContent.keyTakeaways.push(line.replace("- ", "").trim());
-      } else if (currentField === "keyTakeaways" && line.startsWith("**")) {
-        currentField = "";
-      } else if (line.startsWith("**Introduction:**")) {
-        currentField = "introduction";
-        parsedContent.introduction = "";
-      } else if (currentField === "introduction" && !line.startsWith("**") && !line.startsWith("## ")) {
-        parsedContent.introduction += line + "\n";
-      } else if (currentField === "introduction" && line.startsWith("## ")) {
-        currentField = "";
-        i--;
-      } else if (line.startsWith("## ") && !line.includes("Frequently Asked Questions")) {
-        if (currentSection) {
-          if (currentSubheadingContent) currentSection.content.push(currentSubheadingContent.trim());
-          parsedContent.sections.push(currentSection);
-        }
-        currentSection = { heading: line.replace("## ", "").trim(), subheadings: [], content: [] };
-        currentField = "section";
-      } else if (currentField === "section" && line.startsWith("### ")) {
-        if (currentSubheadingContent) currentSection.content.push(currentSubheadingContent.trim());
-        currentSection.subheadings.push(line.replace("### ", "").trim());
-        currentSubheadingContent = "";
-      } else if (currentField === "section" && !line.startsWith("**") && !line.startsWith("## ")) {
-        currentSubheadingContent += line + "\n";
-      } else if (currentField === "section" && line.startsWith("## ")) {
-        if (currentSubheadingContent) currentSection.content.push(currentSubheadingContent.trim());
-        currentField = "";
-        i--;
-      } else if (line.startsWith("## Frequently Asked Questions")) {
-        if (currentSection) {
-          if (currentSubheadingContent) currentSection.content.push(currentSubheadingContent.trim());
-          parsedContent.sections.push(currentSection);
-          currentSection = null;
-        }
-        currentField = "faqs";
-      } else if (currentField === "faqs" && line.startsWith("**") && line.endsWith("?**")) {
-        if (currentFaq) parsedContent.faqs.push(currentFaq);
-        currentFaq = { question: line.replace(/\*\*/g, "").trim(), answer: "" };
-      } else if (currentField === "faqs" && currentFaq && !line.startsWith("**")) {
-        currentFaq.answer += line + "\n";
-      } else if (currentField === "faqs" && line.startsWith("**")) {
-        if (currentFaq) parsedContent.faqs.push(currentFaq);
-        currentFaq = null;
-        currentField = "";
-        i--;
-      } else if (line.startsWith("**Promotional Section:**")) {
-        currentField = "promotionalSection";
-        parsedContent.promotionalSection = "";
-        while (i + 1 < lines.length && !lines[i + 1].startsWith("**")) {
-          i++;
-          parsedContent.promotionalSection += lines[i].trim() + "\n";
-        }
-      } else if (line.startsWith("**Internal Links:**")) {
-        currentField = "internalLinks";
-      } else if (currentField === "internalLinks" && line.startsWith("- ")) {
-        parsedContent.internalLinks.push(line.replace("- ", "").trim());
-      } else if (currentField === "internalLinks" && line.startsWith("**")) {
-        currentField = "";
-      } else if (line.startsWith("**Call to Action:**")) {
-        parsedContent.callToAction = line.replace("**Call to Action:**", "").trim();
-      } else if (line.startsWith("**Schema Markup:**")) {
-        currentField = "schemaMarkup";
-        parsedContent.schemaMarkup = "";
-        while (i + 1 < lines.length && !lines[i + 1].startsWith("**")) {
-          i++;
-          parsedContent.schemaMarkup += lines[i].trim() + "\n";
-        }
-      }
+    // Use jsonrepair to fix any broken JSON
+    let repairedJson;
+    try {
+      repairedJson = jsonrepair(rawContent);
+    } catch (repairError) {
+      console.error("JSON Repair Error:", repairError);
+      throw new Error("Unable to repair JSON response");
     }
 
-    if (currentSection) {
-      if (currentSubheadingContent) currentSection.content.push(currentSubheadingContent.trim());
-      parsedContent.sections.push(currentSection);
-    }
-    if (currentFaq) parsedContent.faqs.push(currentFaq);
+    // Parse the repaired JSON
+    const generatedContent = JSON.parse(repairedJson);
 
-    // Versatile fallbacks
-    parsedContent.introduction =
-      parsedContent.introduction.trim() ||
-      `In today’s competitive market, ${primaryService} is key to ${finalUniqueBusinessGoal}. ${finalCompanyName} offers tailored solutions to address ${finalSpecificChallenge} for ${finalTargetAudience}. This article explores how we can help your business thrive.`;
-    parsedContent.sections = parsedContent.sections.length
-      ? parsedContent.sections
-      : [
-          {
-            heading: `How ${finalKeyword} Transforms Your Business`,
-            subheadings: [`Leveraging ${primaryService} Expertise`],
-            content: [`${finalCompanyName} uses ${primaryService} to drive ${finalUniqueBusinessGoal}.`],
-          },
-        ];
-    parsedContent.promotionalSection =
-      parsedContent.promotionalSection.trim() ||
-      `At ${finalCompanyName}, we’re offering a special deal on ${primaryService}. Contact us to enhance your ${finalTargetAudience} success today!`;
-    parsedContent.internalLinks = parsedContent.internalLinks.length
-      ? parsedContent.internalLinks
-      : [
-          `[Learn More About ${primaryService}](https://www.${finalCompanyName.toLowerCase().replace(/\s/g, '')}.com/services/${primaryService.replace(/\s/g, '-')})`,
-          `[Portfolio](https://www.${finalCompanyName.toLowerCase().replace(/\s/g, '')}.com/portfolio)`,
-          `[Contact Us](https://www.${finalCompanyName.toLowerCase().replace(/\s/g, '')}.com/contact)`,
-        ];
-    parsedContent.callToAction = parsedContent.callToAction || finalCta;
-
-    // Ensure 10 unique FAQs
-    const requiredFaqs = [
-      `What exactly are ${primaryService} services?`,
-      `How does ${finalKeyword} benefit my business?`,
-      `What should I look for in a ${primaryService} provider?`,
-      `How long does the ${primaryService} process take?`,
-      `Can I provide my own materials for ${primaryService}?`,
-      `Which ${finalTargetAudience} benefit from ${primaryService}?`,
-      `Is it worth investing in ${primaryService}?`,
-      `Does ${finalCompanyName} offer ${primaryService} packages?`,
-      `What if I need revisions after using ${primaryService}?`,
-      `How do I start with ${finalCompanyName} for ${primaryService}?`,
-    ];
-    const faqMap = new Map(parsedContent.faqs.map((faq) => [faq.question, faq]));
-    requiredFaqs.forEach((q) => {
-      if (!faqMap.has(q)) {
-        faqMap.set(q, {
-          question: q,
-          answer: `${finalCompanyName} offers ${primaryService} to address ${finalSpecificChallenge} for ${finalTargetAudience}. Contact us to learn more.`,
-        });
+    // Ensure sections.content is an array of strings
+    generatedContent.sections = generatedContent.sections.map(section => {
+      if (!Array.isArray(section.content)) {
+        section.content = [JSON.stringify(section.content)];
       }
+      return section;
     });
-    parsedContent.faqs = Array.from(faqMap.values()).slice(0, 10);
 
-    // Schema fallback
-    parsedContent.schemaMarkup =
-      parsedContent.schemaMarkup.trim() ||
-      `
-{
-  "@context": "https://schema.org",
-  "@type": "Article",
-  "headline": "${finalKeyword} - ${finalCompanyName}",
-  "author": {"@type": "Organization", "name": "${finalCompanyName}"},
-  "datePublished": "2025-03-21",
-  "image": "/images/${primaryService}-example.jpg",
-  "publisher": {"@type": "Organization", "name": "${finalCompanyName}", "logo": {"@type": "ImageObject", "url": "/images/${finalCompanyName.toLowerCase().replace(/\s/g, '')}-logo.jpg"}},
-  "aggregateRating": {"@type": "AggregateRating", "ratingValue": "4.5", "reviewCount": "50"}
-}
-{
-  "@context": "https://schema.org",
-  "@type": "FAQPage",
-  "mainEntity": ${JSON.stringify(parsedContent.faqs.map((faq) => ({ "@type": "Question", "name": faq.question, "acceptedAnswer": { "@type": "Answer", "text": faq.answer.trim() } })))}
-}
-{
-  "@context": "https://schema.org",
-  "@type": "LocalBusiness",
-  "name": "${finalCompanyName}",
-  "address": {"@type": "PostalAddress", "addressLocality": "${finalTargetAudience}", "addressCountry": "PH"},
-  "aggregateRating": {"@type": "AggregateRating", "ratingValue": "4.5", "reviewCount": "50"}
-}
-`;
+    // Ensure schemaMarkup and images are properly formatted
+    if (typeof generatedContent.schemaMarkup !== 'string') {
+      generatedContent.schemaMarkup = JSON.stringify(generatedContent.schemaMarkup);
+    }
+    if (!Array.isArray(generatedContent.images)) {
+      generatedContent.images = [];
+    }
 
-    // Clean content
-    const cleanContent = {
-      proposedUrl: parsedContent.proposedUrl,
-      titleTag: parsedContent.titleTag,
-      metaDescription: parsedContent.metaDescription,
-      contentIntent: parsedContent.contentIntent,
-      keyTakeaways: parsedContent.keyTakeaways,
-      title: parsedContent.title,
-      introduction: parsedContent.introduction.trim(),
-      sections: parsedContent.sections.map((s) => ({
-        heading: s.heading,
-        subheadings: s.subheadings,
-        content: s.content.map((c) => c.trim()),
-      })),
-      faqs: parsedContent.faqs.map((f) => ({ question: f.question, answer: f.answer.trim() })),
-      promotionalSection: parsedContent.promotionalSection.trim(),
-      internalLinks: parsedContent.internalLinks,
-      callToAction: parsedContent.callToAction.trim(),
-      schemaMarkup: parsedContent.schemaMarkup.trim(),
-    };
-
-    req.session.generatedContent = cleanContent;
-    console.log("Generated Content:", cleanContent);
-
+    req.session.generatedContent = generatedContent;
     res.json({ redirect: "/blog-article/generated-article" });
   } catch (error) {
     console.error("Error generating article:", error);
     res.status(500).json({ error: "Error generating content. Please try again." });
   }
 });
+
+
+
 
 // Step 6: Save business details prompt
 router.get("/save-details-prompt", (req, res) => {

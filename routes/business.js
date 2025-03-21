@@ -14,7 +14,6 @@ router.get('/businesses', async (req, res) => {
 });
 
 // Handle business selection or new details for both Article and Social Media flows
-// Handle business selection or new details for both Article and Social Media flows
 router.post('/branding-details', async (req, res) => {
   try {
     const {
@@ -23,7 +22,7 @@ router.post('/branding-details', async (req, res) => {
       companyName,
       description,
       services,
-      focusService, // Still collected from the form
+      focusService,
       audience,
       targetAudience,
       demographic,
@@ -45,14 +44,19 @@ router.post('/branding-details', async (req, res) => {
     }
 
     // Reset session data for a new flow
-    req.session.generatedContent = null; // Clear previous generated content
-    req.session.tempBusinessDetails = null; // Clear previous temp business details
-    req.session.businessDetails = null; // Clear previous business details
-    req.session.contentType = contentType; // Store the current content type
+    req.session.generatedContent = null;
+    req.session.tempBusinessDetails = null;
+    req.session.businessDetails = null;
+    req.session.contentType = contentType;
 
     console.log('🔄 Session reset for new flow:', req.session);
 
     const finalTargetAudience = contentType === 'article' ? audience : targetAudience;
+
+    // Always store focusService in tempBusinessDetails to preserve it for later routes
+    req.session.tempBusinessDetails = {
+      focusService: focusService || 'All services', // Store focusService temporarily
+    };
 
     if (selectedBusiness && selectedBusiness !== "new") {
       const business = await Business.findById(selectedBusiness);
@@ -76,7 +80,7 @@ router.post('/branding-details', async (req, res) => {
           companyName: business.companyName,
           description: business.description || 'No description provided.',
           services: business.services || 'General services',
-          focusService: focusService || '', // Use the form's focusService since it's not in the database anymore
+          focusService: focusService || '', // Use the form's focusService
           targetAudience: business.targetAudience || 'General audience',
           demographic: business.demographic || '',
           address: business.address || '',
@@ -98,7 +102,7 @@ router.post('/branding-details', async (req, res) => {
       companyName: companyName || 'Unnamed Company',
       description: description || 'No description provided.',
       services: services || 'General services',
-      focusService: focusService || 'All services', // Still store focusService in the session for temporary use
+      focusService: focusService || 'All services',
       targetAudience: finalTargetAudience || 'General audience',
       demographic: demographic || '',
       address: address || '',
@@ -151,20 +155,24 @@ router.post('/verify-password', async (req, res) => {
       return res.status(401).json({ error: 'Incorrect password' });
     }
 
+    // Ensure focusService is preserved from tempBusinessDetails
+    const focusService = req.session.tempBusinessDetails?.focusService || '';
+
     req.session.businessDetails = {
       companyName: business.companyName,
-      description: business.description,
-      services: business.services,
-      // focusService is not in the database anymore, so we set it to empty or get it from the form if needed
-      focusService: req.session.tempBusinessDetails?.focusService || '',
-      targetAudience: business.targetAudience,
-      demographic: business.demographic,
-      address: business.address,
-      email: business.email,
-      phoneNumber: business.phoneNumber,
-      brandTone: business.brandTone,
-      companyWebsite: business.companyWebsite,
+      description: business.description || 'No description provided.',
+      services: business.services || 'General services',
+      focusService: focusService, // Use the preserved focusService
+      targetAudience: business.targetAudience || 'General audience',
+      demographic: business.demographic || '',
+      address: business.address || '',
+      email: business.email || '',
+      phoneNumber: business.phoneNumber || '',
+      brandTone: business.brandTone || 'professional',
+      companyWebsite: business.companyWebsite || '',
     };
+
+    console.log('After verifying password, session:', req.session);
 
     const contentType = req.session.contentType || 'article';
     res.json({
