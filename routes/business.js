@@ -237,4 +237,10 @@ router.post('/save-details', async (req, res) => {
   }
 });
 
+// Get current content type from session
+router.get('/current-content-type', (req, res) => {
+  const contentType = req.session.contentType || 'article'; // Default to 'article' if not set
+  res.json({ contentType });
+}); 
+
 module.exports = router;
