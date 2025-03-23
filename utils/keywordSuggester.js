@@ -4,24 +4,9 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Heuristic-based fallback
-const suggestKeywords = (businessDetails) => {
-  const { focusService, targetAudience } = businessDetails;
-  const effectiveFocusService =
-    focusService ||
-    (typeof businessDetails.services === "string"
-      ? businessDetails.services.split(",").map((s) => s.trim())[0]
-      : null) ||
-    "business solutions";
-
-  return [
-    `${effectiveFocusService.toLowerCase()} for ${targetAudience.toLowerCase()}`,
-    `best ${effectiveFocusService.toLowerCase()} provider`,
-    `${effectiveFocusService.toLowerCase()} solutions`,
-  ];
-};
-
 const suggestKeywordsWithOpenAI = async (businessDetails) => {
+  console.log("Business Details for Suggestion:", businessDetails);
+
   const { companyName, description, services, focusService, targetAudience } = businessDetails;
 
   const effectiveFocusService =
@@ -54,9 +39,7 @@ Make each suggestion creative and avoid repeating generic keyword patterns. Use 
 
 Tone Directive: ${randomTone}
 
-Here’s an example of diverse outputs:
-- Primary Keywords: "AI-powered content strategy for startups", "automated SEO analysis tools", "scalable digital growth system"
-- Secondary Keywords: "startup SEO automation", "AI for keyword ranking", "content intelligence tools"
+Generate exactly 3 primary keywords, 3 secondary keywords, and 3 key points. Also provide a unique business goal, specific challenge, and personal anecdote. Ensure the output strictly follows the format below.
 
 Expected Output Format:
 
@@ -68,14 +51,20 @@ Specific Challenge: [challenge]
 Personal Anecdote: [anecdote]
 `;
 
+  console.log("Generated Prompt:", prompt);
+
   try {
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
       max_tokens: 300,
       temperature: 1.0,
+      presence_penalty: 0.3,
+      frequency_penalty: 0.3,
       seed: Math.floor(Math.random() * 10000),
     });
+
+    console.log("Raw OpenAI Response:", response.choices[0].message.content);
 
     const lines = response.choices[0].message.content.split("\n").filter((line) => line.trim());
     let primaryKeywords = [];
@@ -84,67 +73,74 @@ Personal Anecdote: [anecdote]
     let uniqueBusinessGoal = "";
     let specificChallenge = "";
     let personalAnecdote = "";
+    let currentSection = null;
 
     lines.forEach((line) => {
-      if (line.startsWith("Primary Keywords:")) {
-        primaryKeywords = line
-          .replace("Primary Keywords:", "")
+      if (line.startsWith("**Primary Keywords:**") || line.startsWith("Primary Keywords:")) {
+        currentSection = "primaryKeywords";
+        const keywords = line
+          .replace(/(\*\*Primary Keywords:\*\*|Primary Keywords:)/, "")
           .split(",")
           .map((k) => k.trim())
-          .filter((k) => k.length > 0)
-          .slice(0, 3);
-      } else if (line.startsWith("Secondary Keywords:")) {
-        secondaryKeywords = line
-          .replace("Secondary Keywords:", "")
+          .filter((k) => k.length > 0);
+        if (keywords.length >= 3) {
+          primaryKeywords = keywords.slice(0, 3);
+        }
+      } else if (line.startsWith("**Secondary Keywords:**") || line.startsWith("Secondary Keywords:")) {
+        currentSection = "secondaryKeywords";
+        const keywords = line
+          .replace(/(\*\*Secondary Keywords:\*\*|Secondary Keywords:)/, "")
           .split(",")
           .map((k) => k.trim())
-          .filter((k) => k.length > 0)
-          .slice(0, 3);
-      } else if (line.startsWith("Key Points:")) {
-        keyPoints = line
-          .replace("Key Points:", "")
+          .filter((k) => k.length > 0);
+        if (keywords.length >= 3) {
+          secondaryKeywords = keywords.slice(0, 3);
+        }
+      } else if (line.startsWith("**Key Points:**") || line.startsWith("Key Points:")) {
+        currentSection = "keyPoints";
+        const points = line
+          .replace(/(\*\*Key Points:\*\*|Key Points:)/, "")
           .split(",")
           .map((k) => k.trim())
-          .filter((k) => k.length > 0)
-          .slice(0, 3);
-      } else if (line.startsWith("Unique Business Goal:")) {
-        uniqueBusinessGoal = line.replace("Unique Business Goal:", "").trim();
-      } else if (line.startsWith("Specific Challenge:")) {
-        specificChallenge = line.replace("Specific Challenge:", "").trim();
-      } else if (line.startsWith("Personal Anecdote:")) {
-        personalAnecdote = line.replace("Personal Anecdote:", "").trim();
+          .filter((k) => k.length > 0);
+        if (points.length >= 3) {
+          keyPoints = points.slice(0, 3);
+        }
+      } else if (line.startsWith("**Unique Business Goal:**") || line.startsWith("Unique Business Goal:")) {
+        currentSection = null;
+        uniqueBusinessGoal = line.replace(/(\*\*Unique Business Goal:\*\*|Unique Business Goal:)/, "").trim();
+      } else if (line.startsWith("**Specific Challenge:**") || line.startsWith("Specific Challenge:")) {
+        currentSection = null;
+        specificChallenge = line.replace(/(\*\*Specific Challenge:\*\*|Specific Challenge:)/, "").trim();
+      } else if (line.startsWith("**Personal Anecdote:**") || line.startsWith("Personal Anecdote:")) {
+        currentSection = null;
+        personalAnecdote = line.replace(/(\*\*Personal Anecdote:\*\*|Personal Anecdote:)/, "").trim();
+      } else if (currentSection === "primaryKeywords" && line.match(/^\d+\.\s/)) {
+        const keyword = line.replace(/^\d+\.\s/, "").replace(/^["']|["']$/g, "").trim();
+        if (keyword) primaryKeywords.push(keyword);
+      } else if (currentSection === "secondaryKeywords" && line.match(/^\d+\.\s/)) {
+        const keyword = line.replace(/^\d+\.\s/, "").replace(/^["']|["']$/g, "").trim();
+        if (keyword) secondaryKeywords.push(keyword);
+      } else if (currentSection === "keyPoints" && line.match(/^\d+\.\s/)) {
+        const point = line.replace(/^\d+\.\s/, "").replace(/^["']|["']$/g, "").trim();
+        if (point) keyPoints.push(point);
       }
     });
 
-    if (
-      !primaryKeywords.length ||
-      !secondaryKeywords.length ||
-      !keyPoints.length ||
-      !uniqueBusinessGoal ||
-      !specificChallenge ||
-      !personalAnecdote
-    ) {
-      console.warn("OpenAI response incomplete, falling back to heuristic values.");
-      const heuristicKeywords = suggestKeywords(businessDetails);
-      const dynamicKeyPoints = [
-        `How ${effectiveFocusService} enhances your online presence`,
-        `Latest strategies in ${effectiveFocusService} for ${targetAudience?.toLowerCase() || "general audience"}`,
-        `Why ${targetAudience?.toLowerCase() || "general audience"} should invest in ${effectiveFocusService}`,
-      ];
-      const fallbackUniqueBusinessGoal = `Increase ${effectiveFocusService.toLowerCase()} ROI for ${targetAudience?.toLowerCase() || "general audience"}`;
-      const fallbackSpecificChallenge = `Standing out in a competitive ${effectiveFocusService.toLowerCase()} market for ${targetAudience?.toLowerCase() || "general audience"}`;
-      const fallbackPersonalAnecdote = `A ${targetAudience?.toLowerCase() || "general audience"} client achieved a 30% increase in engagement after using our ${effectiveFocusService.toLowerCase()} services`;
+    primaryKeywords = primaryKeywords.slice(0, 3);
+    secondaryKeywords = secondaryKeywords.slice(0, 3);
+    keyPoints = keyPoints.slice(0, 3);
 
-      return {
-        primaryKeywords: primaryKeywords.length ? primaryKeywords : heuristicKeywords,
-        secondaryKeywords: secondaryKeywords.length ? secondaryKeywords : heuristicKeywords.slice(1),
-        keyPoints: keyPoints.length ? keyPoints : dynamicKeyPoints,
-        uniqueBusinessGoal: uniqueBusinessGoal || fallbackUniqueBusinessGoal,
-        specificChallenge: specificChallenge || fallbackSpecificChallenge,
-        personalAnecdote: personalAnecdote || fallbackPersonalAnecdote,
-      };
-    }
+    console.log("Parsed Suggestions:", {
+      primaryKeywords,
+      secondaryKeywords,
+      keyPoints,
+      uniqueBusinessGoal,
+      specificChallenge,
+      personalAnecdote,
+    });
 
+    // Return partial suggestions if available
     return {
       primaryKeywords,
       secondaryKeywords,
@@ -155,25 +151,15 @@ Personal Anecdote: [anecdote]
     };
   } catch (error) {
     console.error("Error with OpenAI keyword suggestion:", error);
-    const heuristicKeywords = suggestKeywords(businessDetails);
-    const dynamicKeyPoints = [
-      `How ${effectiveFocusService} enhances your online presence`,
-      `Latest strategies in ${effectiveFocusService} for ${targetAudience?.toLowerCase() || "general audience"}`,
-      `Why ${targetAudience?.toLowerCase() || "general audience"} should invest in ${effectiveFocusService}`,
-    ];
-    const fallbackUniqueBusinessGoal = `Increase ${effectiveFocusService.toLowerCase()} ROI for ${targetAudience?.toLowerCase() || "general audience"}`;
-    const fallbackSpecificChallenge = `Standing out in a competitive ${effectiveFocusService.toLowerCase()} market for ${targetAudience?.toLowerCase() || "general audience"}`;
-    const fallbackPersonalAnecdote = `A ${targetAudience?.toLowerCase() || "general audience"} client achieved a 30% increase in engagement after using our ${effectiveFocusService.toLowerCase()} services`;
-
     return {
-      primaryKeywords: heuristicKeywords,
-      secondaryKeywords: heuristicKeywords.slice(1),
-      keyPoints: dynamicKeyPoints,
-      uniqueBusinessGoal: fallbackUniqueBusinessGoal,
-      specificChallenge: fallbackSpecificChallenge,
-      personalAnecdote: fallbackPersonalAnecdote,
+      primaryKeywords: [],
+      secondaryKeywords: [],
+      keyPoints: [],
+      uniqueBusinessGoal: "",
+      specificChallenge: "",
+      personalAnecdote: "",
     };
   }
 };
 
-module.exports = { suggestKeywords, suggestKeywordsWithOpenAI };
+module.exports = { suggestKeywordsWithOpenAI };

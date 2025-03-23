@@ -11,10 +11,16 @@ const rateLimit = require("express-rate-limit");
 const xss = require("xss-clean");
 const mongoSanitize = require("express-mongo-sanitize");
 const cors = require("cors");
+const passport = require('passport');
 
 const socialMediaRoute = require('./routes/socialMediaContent');
 const articleBlogRoute = require('./routes/articleBlogContent');
 const businessRoute = require('./routes/business');
+const contentRoutes = require('./routes/content');
+const userRoutes = require('./routes/user');
+const authRoute = require('./routes/auth');
+const billingRoutes = require('./routes/billing'); // Add this line
+require('./config/passport'); // Initialize Passport
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -33,12 +39,12 @@ app.use(cors({
       callback(new Error("Not allowed by CORS"));
     }
   },
-  credentials: true,
+  credentials: true, // Allow cookies to be sent with requests
 }));
 
 // Security Headers (Helmet)
 const frameSrcUrls = [
-  "https://js.stripe.com/",
+  "https://js.stripe.com/", // Add Stripe for payment iframes
   "https://www.sandbox.paypal.com/",
   "https://www.facebook.com/",
   "https://my.spline.design/",
@@ -47,6 +53,7 @@ const frameSrcUrls = [
 ];
 
 const scriptSrcUrls = [
+  "https://js.stripe.com/", // Add Stripe for payment scripts
   "https://stackpath.bootstrapcdn.com/",
   "https://cdn.jsdelivr.net/",
   "https://cdnjs.cloudflare.com/",
@@ -74,6 +81,7 @@ const styleSrcUrls = [
 ];
 
 const connectSrcUrls = [
+  "https://api.stripe.com/", // Add Stripe for payment connections
   "https://unsplash.com/",
   "https://prod.spline.design/",
   "https://unpkg.com/",
@@ -84,8 +92,8 @@ const connectSrcUrls = [
   "https://b.tiles.mapbox.com/",
   "https://events.mapbox.com/",
   "blob:",
-  "ws://localhost:3000", // For Socket.IO in development
-  "wss://content.editedgemultimedia.com", // For Socket.IO in production
+  "ws://localhost:3000",
+  "wss://content.editedgemultimedia.com",
 ];
 
 const imgSrcUrls = [
@@ -138,20 +146,19 @@ app.use(
   })
 );
 
+// Rate Limiting
 const generalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 15 * 60 * 1000,
   max: process.env.NODE_ENV === 'production' ? 100 : 1000,
   message: "Too many requests from this IP, please try again later.",
 });
 
-// Rate limiter for API routes
 const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 15 * 60 * 1000,
   max: process.env.NODE_ENV === 'production' ? 50 : 500,
   message: "Too many API requests from this IP, please try again later.",
 });
 
-// Apply general limiter to all routes except /socket.io/
 app.use((req, res, next) => {
   if (req.path.startsWith('/socket.io/')) {
     return next();
@@ -159,8 +166,9 @@ app.use((req, res, next) => {
   generalLimiter(req, res, next);
 });
 
-// Apply stricter limiter to API routes
 app.use('/api/', apiLimiter);
+
+// Security Middleware
 app.use(xss());
 app.use(mongoSanitize());
 
@@ -190,7 +198,7 @@ const store = new MongoDBStore({
   collection: "sessions",
 });
 store.on("connected", () => {
-  console.log("MongoDB session store connected");
+  console.log("✅ MongoDB session store connected");
 });
 
 store.on("error", (error) => {
@@ -198,19 +206,39 @@ store.on("error", (error) => {
 });
 
 // Session Configuration
-app.use(session({
-  secret: secret,
-  name: "_editEdge",
-  resave: false,
-  saveUninitialized: false,
-  store: store,
-  cookie: {
-    httpOnly: true,
-    secure: isProduction,
-    sameSite: "strict",
-    maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
-  },
-}));
+app.use(
+  session({
+    secret: secret,
+    name: "_editEdge",
+    resave: false,
+    saveUninitialized: false,
+    store: store,
+    cookie: {
+      httpOnly: true,
+      secure: isProduction, // Set to false for local development (HTTP)
+      sameSite: "strict",
+      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
+    },
+  })
+);
+
+// Add logging to verify session middleware
+app.use((req, res, next) => {
+  console.log('Session middleware - Session ID:', req.sessionID);
+  console.log('Session middleware - Session data:', req.session);
+  next();
+});
+
+// Initialize Passport
+app.use(passport.initialize());
+app.use(passport.session());
+
+// Verify Passport session setup
+app.use((req, res, next) => {
+  console.log('Passport middleware - User:', req.user);
+  console.log('Passport middleware - Authenticated:', req.isAuthenticated());
+  next();
+});
 
 // Middleware
 app.use(bodyParser.urlencoded({ extended: true, limit: "10kb" }));
@@ -221,7 +249,7 @@ app.use(express.static(path.join(__dirname, "public"), {
 }));
 app.set("trust proxy", 1);
 
-// Logging
+// Request Logging
 app.use((req, res, next) => {
   console.log(`${req.method} ${req.path} - ${req.ip}`);
   next();
@@ -239,18 +267,17 @@ try {
 }
 
 // API Routes
+app.use('/api/auth', authRoute);
 app.use('/api/social-media', socialMediaRoute);
 app.use('/api/blog-article', articleBlogRoute);
-app.use('/api/blog-article', businessRoute);
-app.use('/api/social-media', businessRoute);
 app.use('/api/business', businessRoute);
+app.use('/api/content', contentRoutes);
+app.use('/api/user', userRoutes);
+app.use('/api/billing', billingRoutes); // Add this line
 
 // Serve React SPA in production only
 if (isProduction) {
-  // Serve static files from client/dist
   app.use(express.static(path.join(__dirname, 'client', 'dist')));
-
-  // Catch-all route for SPA (client-side routing)
   app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'client', 'dist', 'index.html'), (err) => {
       if (err) {
@@ -260,7 +287,6 @@ if (isProduction) {
     });
   });
 } else {
-  // In development, return a 404 for unmatched routes (let Vite handle frontend)
   app.get('*', (req, res) => {
     res.status(404).json({ error: 'Not Found (development mode)' });
   });

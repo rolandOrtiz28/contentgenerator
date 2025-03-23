@@ -1,3 +1,4 @@
+require("dotenv").config();
 const express = require('express');
 const router = express.Router();
 const OpenAI = require("openai");
@@ -5,19 +6,14 @@ const axios = require('axios');
 const Business = require('../models/Business');
 const { suggestKeywordsWithOpenAI } = require('../utils/keywordSuggester');
 const { jsonrepair } = require('jsonrepair');
+const Content = require('../models/Content'); 
+const User = require('../models/User');
+const { ensureAuthenticated, ensureBusinessRole } = require('../middleware/auth');
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Initialize Perplexity API
-const perplexityApi = axios.create({
-  baseURL: 'https://api.perplexity.ai',
-  headers: {
-    'Authorization': `Bearer ${process.env.PERPLEXITY_API_KEY}`,
-    'Content-Type': 'application/json',
-  },
-});
 
 
 // In-memory cache for Perplexity results
@@ -34,194 +30,113 @@ router.get("/branding-article", async (req, res) => {
   }
 });
 
-// Step 3: Extract branding details from website
-router.get("/extract-branding-article", async (req, res) => {
-  const websiteURL = req.query.website;
 
-  if (!websiteURL) {
+// Step 4: New route for content details form
+router.get('/content-details', ensureAuthenticated, async (req, res) => {
+  const businessId = req.session.businessId;
+
+  if (!businessId) {
     return res.status(400).json({
-      companyName: req.session.tempBusinessDetails?.companyName || "",
-      description: "",
-      services: "",
-      targetAudience: req.session.tempBusinessDetails?.targetAudience || "", // Updated to targetAudience
-      brandTone: req.session.tempBusinessDetails?.brandTone || "",
-      keyword: req.session.tempBusinessDetails?.keyword || "",
-      isRegistered: false,
-      error: "Website URL is required.",
+      error: 'No business selected. Please start the process again.',
+      redirect: '/blog-article/branding-article',
     });
   }
 
   try {
-    // Check session cache
-    if (req.session.extractedBranding && req.session.extractedBranding.websiteURL === websiteURL) {
-      return res.json({
-        ...req.session.extractedBranding,
-        targetAudience: req.session.tempBusinessDetails?.targetAudience || "", // Updated to targetAudience
-        brandTone: req.session.tempBusinessDetails?.brandTone || "",
-        keyword: req.session.tempBusinessDetails?.keyword || "",
-        isRegistered: false,
-        error: null,
+    const business = await Business.findOne({ _id: businessId, owner: req.user._id });
+    if (!business) {
+      return res.status(404).json({
+        error: 'Business not found',
+        redirect: '/blog-article/branding-article',
       });
     }
 
-    // Check database cache
-    const existingBusiness = await Business.findOne({ companyWebsite: websiteURL });
-    if (existingBusiness) {
-      req.session.extractedBranding = {
-        companyName: existingBusiness.companyName,
-        description: existingBusiness.description,
-        services: existingBusiness.services,
-        websiteURL,
-      };
-      return res.json({
-        ...req.session.extractedBranding,
-        targetAudience: req.session.tempBusinessDetails?.targetAudience || "", // Updated to targetAudience
-        brandTone: req.session.tempBusinessDetails?.brandTone || "",
-        keyword: req.session.tempBusinessDetails?.keyword || "",
-        isRegistered: true,
-        error: null,
-      });
+    const businessDetails = {
+      companyName: business.companyName,
+      description: business.description,
+      services: business.services,
+      focusService: business.focusService,
+      targetAudience: business.targetAudience,
+      demographic: business.demographic || '',
+      address: business.address || '',
+      email: business.email || '',
+      phoneNumber: business.phoneNumber || '',
+      brandTone: business.brandTone,
+      companyWebsite: business.companyWebsite,
+    };
+
+    // Ensure focusService is set
+    if (!businessDetails.focusService) {
+      console.warn('focusService not set, defaulting to first service.');
+      businessDetails.focusService = businessDetails.services?.split(',').map(s => s.trim())[0] || 'business solutions';
+      business.focusService = businessDetails.focusService;
+      await business.save();
     }
 
-    // Check in-memory cache
-    if (cache.has(websiteURL)) {
-      req.session.extractedBranding = cache.get(websiteURL);
-      return res.json({
-        ...req.session.extractedBranding,
-        targetAudience: req.session.tempBusinessDetails?.targetAudience || "", // Updated to targetAudience
-        brandTone: req.session.tempBusinessDetails?.brandTone || "",
-        keyword: req.session.tempBusinessDetails?.keyword || "",
-        isRegistered: false,
-        error: null,
-      });
-    }
-
-    // Query Perplexity API
-    const prompt = `
-      Analyze the website at ${websiteURL} and provide:
-      1. Company Name
-      2. Description (50-100 words)
-      3. Services (comma-separated)
-      Use placeholders like "Unknown Company" if data is unavailable.
-    `;
-
-    const response = await perplexityApi.post('/chat/completions', {
-      model: 'mistral-7b-instruct',
-      messages: [
-        { role: 'system', content: 'Extract branding info concisely.' },
-        { role: 'user', content: prompt },
-      ],
-      max_tokens: 150,
-      temperature: 0.5,
-    });
-
-    const perplexityResponse = response.data.choices[0].message.content.trim();
-    console.log("Perplexity Response:", perplexityResponse);
-
-    let companyName = "Unknown Company";
-    let description = "No description available.";
-    let services = "No services found.";
-
-    const lines = perplexityResponse.split('\n');
-    lines.forEach(line => {
-      if (line.startsWith('1. Company Name')) {
-        companyName = line.replace('1. Company Name', '').replace(':', '').trim() || "Unknown Company";
-      } else if (line.startsWith('2. Description')) {
-        description = line.replace('2. Description', '').replace(':', '').trim() || "No description available.";
-      } else if (line.startsWith('3. Services')) {
-        services = line.replace('3. Services', '').replace(':', '').trim() || "No services found.";
-      }
-    });
-
-    req.session.extractedBranding = { companyName, description, services, websiteURL };
-    cache.set(websiteURL, req.session.extractedBranding);
+    // Get suggestions from OpenAI
+    const suggestions = await suggestKeywordsWithOpenAI(businessDetails);
 
     res.json({
-      companyName,
-      description,
-      services,
-      targetAudience: req.session.tempBusinessDetails?.targetAudience || "", // Updated to targetAudience
-      brandTone: req.session.tempBusinessDetails?.brandTone || "",
-      keyword: req.session.tempBusinessDetails?.keyword || "",
-      isRegistered: false,
+      business: businessDetails,
+      suggestedPrimaryKeywords: suggestions.primaryKeywords,
+      suggestedSecondaryKeywords: suggestions.secondaryKeywords,
+      suggestedKeyPoints: suggestions.keyPoints,
+      suggestedUniqueBusinessGoal: suggestions.uniqueBusinessGoal,
+      suggestedSpecificChallenge: suggestions.specificChallenge,
+      suggestedPersonalAnecdote: suggestions.personalAnecdote,
       error: null,
     });
   } catch (error) {
-    console.error("Error with Perplexity API:", error.response?.data || error.message);
-    const urlFallback = new URL(websiteURL);
-    req.session.extractedBranding = {
-      companyName: urlFallback.hostname.replace('www.', '').split('.')[0] || "Unknown Company",
-      description: "No description available due to extraction error.",
-      services: "No services found.",
-      websiteURL,
-    };
-    res.status(500).json({
-      ...req.session.extractedBranding,
-      targetAudience: req.session.tempBusinessDetails?.targetAudience || "", // Updated to targetAudience
-      brandTone: req.session.tempBusinessDetails?.brandTone || "",
-      keyword: req.session.tempBusinessDetails?.keyword || "",
-      isRegistered: false,
-      error: "Failed to extract website data. Using fallback values.",
-    });
+    console.error('Error fetching business details:', error);
+    res.status(500).json({ error: 'Failed to fetch business details' });
   }
 });
-
-// Step 4: New route for content details form
-router.get("/content-details", async (req, res) => {
-  if (!req.session.tempBusinessDetails && !req.session.businessDetails) {
-    return res.status(400).json({
-      error: 'Business details not found in session. Please start the process again.',
-      business: {},
-      suggestedPrimaryKeywords: [],
-      suggestedSecondaryKeywords: [],
-      suggestedKeyPoints: [],
-      suggestedUniqueBusinessGoal: '',
-      suggestedSpecificChallenge: '',
-      suggestedPersonalAnecdote: '',
-    });
-  }
-
-  const businessDetails = req.session.businessDetails || req.session.tempBusinessDetails;
-  console.log("Business Details in /content-details:", businessDetails); // Debug log
-
-  // Ensure focusService is set
-  if (!businessDetails.focusService) {
-    console.warn("focusService not set, defaulting to first service.");
-    businessDetails.focusService = businessDetails.services?.split(',').map(s => s.trim())[0] || "business solutions";
-  }
-
-  // Get suggestions from OpenAI
-  const suggestions = await suggestKeywordsWithOpenAI(businessDetails);
-
-  res.json({
-    business: {
-      companyName: businessDetails.companyName,
-      description: businessDetails.description,
-      services: businessDetails.services,
-      focusService: businessDetails.focusService,
-      targetAudience: businessDetails.targetAudience,
-      demographic: businessDetails.demographic,
-      address: businessDetails.address,
-      email: businessDetails.email,
-      phoneNumber: businessDetails.phoneNumber,
-      brandTone: businessDetails.brandTone,
-      companyWebsite: businessDetails.companyWebsite,
-    },
-    suggestedPrimaryKeywords: suggestions.primaryKeywords,
-    suggestedSecondaryKeywords: suggestions.secondaryKeywords,
-    suggestedKeyPoints: suggestions.keyPoints,
-    suggestedUniqueBusinessGoal: suggestions.uniqueBusinessGoal, // New field
-    suggestedSpecificChallenge: suggestions.specificChallenge, // New field
-    suggestedPersonalAnecdote: suggestions.personalAnecdote, // New field
-    error: null,
-  });
-});
-
-
 // Step 5: Generate the SEO-optimized article
 
 
-router.post("/generate-content-article", async (req, res) => {
+// Manual fix for common JSON issues
+function manualFixJson(rawContent) {
+  let fixedContent = rawContent;
+
+  // Fix missing quotes around keys in schemaMarkup
+  fixedContent = fixedContent.replace(/({|,)\s*([a-zA-Z0-9_]+)\s*:/g, '$1 "$2":');
+
+  // Fix missing quotes around values in schemaMarkup
+  fixedContent = fixedContent.replace(/:\s*([a-zA-Z0-9_]+)(,|})/g, ': "$1"$2');
+
+  // Ensure schemaMarkup has proper closing braces
+  if (fixedContent.includes('"schemaMarkup":')) {
+    const schemaStart = fixedContent.indexOf('"schemaMarkup":') + 14;
+    const schemaEnd = fixedContent.lastIndexOf('"}');
+    if (schemaEnd > schemaStart) {
+      let schemaPart = fixedContent.substring(schemaStart, schemaEnd + 2);
+      let braceCount = 0;
+      let inQuotes = false;
+      for (let i = 0; i < schemaPart.length; i++) {
+        if (schemaPart[i] === '"' && schemaPart[i - 1] !== '\\') {
+          inQuotes = !inQuotes;
+        }
+        if (!inQuotes) {
+          if (schemaPart[i] === '{') braceCount++;
+          if (schemaPart[i] === '}') braceCount--;
+        }
+      }
+      while (braceCount > 0) {
+        schemaPart += '}';
+        braceCount--;
+      }
+      while (braceCount < 0) {
+        schemaPart = schemaPart.slice(0, -1);
+        braceCount++;
+      }
+      fixedContent = fixedContent.substring(0, schemaStart) + schemaPart + fixedContent.substring(schemaEnd + 2);
+    }
+  }
+
+  return fixedContent;
+}
+
+router.post('/generate-content-article', ensureAuthenticated, ensureBusinessRole('Editor'), async (req, res) => {
   const {
     companyName,
     description,
@@ -239,95 +154,171 @@ router.post("/generate-content-article", async (req, res) => {
     personalAnecdote,
   } = req.body;
 
-  const contentPrompt = `
-You are a top-tier SEO content strategist. Generate a highly optimized blog article as a JSON object for the provided business details. All fields must be fully AI-generated based on the input, with no hardcoded fallbacks. The content must be SEO-optimized, engaging, and at least 1200-1500 words long.
-
-**Business Details:**
-- Company Name: ${companyName || "Edit Edge Multimedia"}
-- Description: ${description || "A multimedia company specializing in innovative digital solutions"}
-- Services: ${services || "video editing, graphic design, 3D art, web development, digital marketing"}
-- Focus Service: ${focusService || "Digital Marketing"}
-- Target Audience: ${targetAudience || "e-commerce businesses and SaaS startups"}
-- Brand Tone: ${brandTone || "professional yet conversational"}
-- Primary Keyword: ${keyword || "digital marketing for e-commerce"}
-- Secondary Keywords: ${secondaryKeywords?.join(", ") || "real estate marketing strategies, e-commerce growth, social media marketing"}
-- Article Length: ${articleLength || "1200-1500 words"}
-- Key Points: ${keyPoints?.join(", ") || "Increase visibility, Boost conversions, Enhance trust"}
-- CTA: ${cta || "Contact Edit Edge Multimedia to skyrocket your online presence!"}
-- Unique Business Goal: ${uniqueBusinessGoal || "Increase conversion rates through engaging digital strategies"}
-- Specific Challenge: ${specificChallenge || "Overcoming low online visibility in competitive markets"}
-- Personal Anecdote: ${personalAnecdote || "A client saw a 50% sales boost after our digital marketing overhaul"}
-
-**SEO Guidelines:**
-- Use the primary keyword ("${keyword || "digital marketing for e-commerce"}") 5-7 times naturally across the article, including:
-  - Within the first 100 words of the introduction.
-  - At least 2-3 times in the body (sections).
-  - In at least one subheading.
-- Incorporate secondary keywords ("${secondaryKeywords?.join(", ") || "real estate marketing strategies, e-commerce growth, social media marketing"}") 2-3 times each where relevant.
-- Optimize for Google Featured Snippets with concise, question-based subheadings and bullet points.
-- Mention the company name 3-5 times naturally.
-- Include 3-5 internal links (e.g., /services/[focus-service], /about, /contact).
-- Ensure readability: Use a conversational tone, short sentences, and bullet points where applicable.
-- Add image suggestions with SEO-optimized alt text (e.g., "Digital marketing infographic for e-commerce growth").
-
-**Output Format (JSON):**
-{
-  "title": "SEO-optimized title (under 60 chars) with primary keyword",
-  "metaDescription": "150-160 char SEO meta description with primary keyword",
-  "proposedUrl": "/[focus-service]-[target-audience]-[secondary-keyword], e.g., /digital-marketing-ecommerce-growth",
-  "introduction": "250-300 word intro addressing the specific challenge, using primary keyword in first 100 words",
-  "sections": [
-    {
-      "heading": "H2 with primary or secondary keyword",
-      "subheadings": ["H3 with keyword or question", "H3 with keyword or question"],
-      "content": ["300-400 words with keyword usage, stats, or examples", "300-400 words with keyword usage"]
-    },
-    {
-      "heading": "H2 targeting secondary keyword or real-world example",
-      "subheadings": ["H3 with actionable tip", "H3 with data insight"],
-      "content": ["300-400 words with case study or anecdote", "300-400 words with bullet points"]
-    }
-  ],
-  "keyTakeaways": ["Point 1 with keyword", "Point 2 with keyword", "Point 3"],
-  "faqs": [
-    {"question": "Question with primary keyword", "answer": "150-200 word answer with keyword"},
-    {"question": "Question with secondary keyword", "answer": "150-200 word answer with keyword"},
-    {"question": "Conversational question", "answer": "150-200 word answer"},
-    {"question": "Conversational question", "answer": "150-200 word answer"}
-  ],
-  "conclusion": "250-300 word conclusion reinforcing focus service, with primary keyword and CTA",
-  "internalLinks": ["/services/[focus-service]", "/about", "/contact", "/blog/[related-topic]"],
-  "schemaMarkup": "Valid JSON-LD string combining Article and FAQPage schema, with escaped quotes",
-  "images": [
-    {"url": "/images/[descriptive-name].jpg", "altText": "Primary keyword + descriptive text"}
-  ]
-}
-
-**Structure:**
-1. Introduction: Address the specific challenge with primary keyword early.
-2. Section 1: How [Focus Service] Drives [Target Audience] Success (keyword-rich).
-3. Section 2: Optimizing [Secondary Keyword] for Growth (e.g., Social Media Marketing).
-4. Section 3: Real-World Success: Case Study (use personal anecdote).
-5. Section 4: Tools and Strategies for [Focus Service] (data-driven insights).
-6. Conclusion: Reinforce benefits with CTA.
-7. Key Takeaways: Bullet points with keywords.
-8. FAQs: 4 keyword-rich, conversational questions.
-9. Schema Markup: Article + FAQPage schema.
-10. Images: Suggest 1-2 visuals with alt text.
-
-**Instructions:**
-- Return a valid JSON object with no backticks, markdown, or extra text.
-- Use straight quotes (") and escape internal quotes with \\ (e.g., "She said \\"yes\\"").
-- Ensure content is 1200-1500 words total across sections.
-- Include stats, examples, or step-by-step tips to add depth.
-- SchemaMarkup must be a single-line string with escaped quotes, e.g., "{\\"@context\\": \\"https://schema.org\\"}".
-- Add an images array with at least one image suggestion.
-`;
-
   try {
+    // Fetch the user
+    const user = await User.findById(req.user._id).populate('businesses');
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Check free trial or subscription (bypass in development)
+    if (process.env.NODE_ENV !== 'development' && user.subscription === 'None' && user.freeTrialUsed) {
+      return res.status(403).json({
+        error: 'You have already used your free trial. Please subscribe to continue.',
+        redirect: '/subscribe',
+      });
+    }
+
+    // Check article generation limits (bypass in development and for EditEdge users)
+    if (process.env.NODE_ENV !== 'development' && !user.isEditEdgeUser) {
+      // Reset count if the weekly cycle has ended
+      const now = new Date();
+      if (!user.contentGenerationResetDate || now > user.contentGenerationResetDate) {
+        user.articleGenerationCount = 0;
+        user.socialMediaGenerationCount = 0;
+        user.contentGenerationResetDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // Reset weekly
+        await user.save();
+        console.log(`Reset counts for user ${user._id}: articleGenerationCount=${user.articleGenerationCount}, contentGenerationResetDate=${user.contentGenerationResetDate}`);
+      }
+
+      // Define limits based on subscription plan
+      const articleLimits = {
+        Basic: 2, // 2 articles per week
+        Pro: 3,  // 3 articles per week
+        Enterprise: 10, // Temporary limit for Enterprise (can be customized per agreement)
+      };
+
+      const userArticleLimit = articleLimits[user.subscription] || 0;
+      if (user.subscription !== 'None' && user.articleGenerationCount >= userArticleLimit) {
+        return res.status(403).json({
+          error: `You have reached your article generation limit of ${userArticleLimit} for the ${user.subscription} plan this week. Please upgrade your plan or wait until next week.`,
+          redirect: '/subscribe',
+        });
+      }
+    }
+
+    // Fetch the business using req.session.businessId
+    let businessId = req.session.businessId;
+    if (!businessId) {
+      return res.status(400).json({
+        error: 'No business selected. Please start the process again.',
+        redirect: '/blog-article/branding-article',
+      });
+    }
+
+    const business = await Business.findById(businessId);
+    if (!business) {
+      return res.status(400).json({
+        error: 'Business not found.',
+        redirect: '/blog-article/branding-article',
+      });
+    }
+
+    // Use the existing business data instead of overwriting it
+    const businessData = {
+      companyName: business.companyName,
+      description: business.description,
+      services: business.services,
+      focusService: business.focusService || focusService || business.services.split(',')[0].trim(),
+      targetAudience: business.targetAudience,
+      brandTone: business.brandTone || brandTone || 'professional',
+    };
+
+    // Construct the content generation prompt using the business data
+    const contentPrompt = `
+    You are a top-tier SEO content strategist. Generate a highly optimized blog article as a JSON object for the provided business details. All fields must be fully AI-generated based on the input, with no hardcoded fallbacks. The content must be SEO-optimized, engaging, and at least 1200-1500 words long.
+
+    **Business Details:**
+    - Company Name: ${businessData.companyName || 'Edit Edge Multimedia'}
+    - Description: ${businessData.description || 'A multimedia company specializing in innovative digital solutions'}
+    - Services: ${businessData.services || 'video editing, graphic design, 3D art, web development, digital marketing'}
+    - Focus Service: ${businessData.focusService || 'Digital Marketing'}
+    - Target Audience: ${businessData.targetAudience || 'e-commerce businesses and SaaS startups'}
+    - Brand Tone: ${businessData.brandTone || 'professional yet conversational'}
+    - Primary Keyword: ${keyword || 'digital marketing for e-commerce'}
+    - Secondary Keywords: ${secondaryKeywords?.join(', ') || 'real estate marketing strategies, e-commerce growth, social media marketing'}
+    - Article Length: ${articleLength || '1200-1500 words'}
+    - Key Points: ${keyPoints?.join(', ') || 'Increase visibility, Boost conversions, Enhance trust'}
+    - CTA: ${cta || 'Contact Edit Edge Multimedia to skyrocket your online presence!'}
+    - Unique Business Goal: ${uniqueBusinessGoal || 'Increase conversion rates through engaging digital strategies'}
+    - Specific Challenge: ${specificChallenge || 'Overcoming low online visibility in competitive markets'}
+    - Personal Anecdote: ${personalAnecdote || 'A client saw a 50% sales boost after our digital marketing overhaul'}
+
+    **SEO Guidelines:**
+    - Use the primary keyword ("${keyword || 'digital marketing for e-commerce'}") 5-7 times naturally across the article, including:
+      - Within the first 100 words of the introduction.
+      - At least 2-3 times in the body (sections).
+      - In at least one subheading.
+    - Incorporate secondary keywords ("${secondaryKeywords?.join(', ') || 'real estate marketing strategies, e-commerce growth, social media marketing'}") 2-3 times each where relevant.
+    - Optimize for Google Featured Snippets with concise, question-based subheadings and bullet points.
+    - Mention the company name 3-5 times naturally.
+    - Include 3-5 internal links (e.g., /services/[focus-service], /about, /contact).
+    - Ensure readability: Use a conversational tone, short sentences, and bullet points where applicable.
+    - Add image suggestions with SEO-optimized alt text (e.g., "Digital marketing infographic for e-commerce growth").
+
+    **Output Format (JSON):**
+    {
+      "title": "SEO-optimized title (under 60 chars) with primary keyword",
+      "metaDescription": "150-160 char SEO meta description with primary keyword",
+      "proposedUrl": "/[focus-service]-[target-audience]-[secondary-keyword], e.g., /digital-marketing-ecommerce-growth",
+      "introduction": "250-300 word intro addressing the specific challenge, using primary keyword in first 100 words",
+      "sections": [
+        {
+          "heading": "H2 with primary or secondary keyword",
+          "subheadings": ["H3 with keyword or question", "H3 with keyword or question"],
+          "content": ["300-400 words with keyword usage, stats, or examples", "300-400 words with keyword usage"]
+        },
+        {
+          "heading": "H2 targeting secondary keyword or real-world example",
+          "subheadings": ["H3 with actionable tip", "H3 with data insight"],
+          "content": ["300-400 words with case study or anecdote", "300-400 words with bullet points"]
+        }
+      ],
+      "keyTakeaways": ["Point 1 with keyword", "Point 2 with keyword", "Point 3"],
+      "faqs": [
+        {"question": "Question with primary keyword", "answer": "150-200 word answer with keyword"},
+        {"question": "Question with secondary keyword", "answer": "150-200 word answer with keyword"},
+        {"question": "Conversational question", "answer": "150-200 word answer"},
+        {"question": "Conversational question", "answer": "150-200 word answer"}
+      ],
+      "conclusion": "250-300 word conclusion reinforcing focus service, with primary keyword and CTA",
+      "internalLinks": ["/services/[focus-service]", "/about", "/contact", "/blog/[related-topic]"],
+      "schemaMarkup": "Valid JSON-LD string combining Article and FAQPage schema, with escaped quotes",
+      "images": [
+        {"url": "/images/[descriptive-name].jpg", "altText": "Primary keyword + descriptive text"}
+      ]
+    }
+
+    **Structure:**
+    1. Introduction: Address the specific challenge with primary keyword early.
+    2. Section 1: How [Focus Service] Drives [Target Audience] Success (keyword-rich).
+    2. Section 2: Optimizing [Secondary Keyword] for Growth (e.g., Social Media Marketing).
+    3. Section 3: Real-World Success: Case Study (use personal anecdote).
+    4. Section 4: Tools and Strategies for [Focus Service] (data-driven insights).
+    6. Conclusion: Reinforce benefits with CTA.
+    7. Key Takeaways: Bullet points with keywords.
+    8. FAQs: 4 keyword-rich, conversational questions.
+    9. Schema Markup: Article + FAQPage schema.
+    10. Images: Suggest 1-2 visuals with alt text.
+
+    **Instructions:**
+    - Return a valid JSON object with no backticks, markdown, or extra text.
+    - Use straight quotes (") and escape all internal quotes with \\ (e.g., "She said \\"yes\\"").
+    - Do not use markdown formatting (e.g., *italics*, **bold**) in any field; use plain text instead.
+    - Ensure all fields, including "schemaMarkup", are properly formatted as valid JSON strings with escaped quotes.
+    - Ensure "schemaMarkup" is a complete and valid JSON-LD string, properly closed with all braces (e.g., "{\\"@context\\": \\"https://schema.org\\", ...}").
+    - For the "schemaMarkup" field, include both Article and FAQPage schemas. Ensure all nested objects (e.g., "faqPage", "mainEntity") are properly structured with correct syntax, including quotes around all keys and values, and proper closing of all braces.
+    - In the "schemaMarkup" field, ensure the "faqPage.mainEntity" array contains 4 valid Question objects, each with a non-empty "name" field (the question text) and an "acceptedAnswer" object with non-empty "@type" (must be "Answer") and "text" fields (the answer text). Do not include empty or placeholder fields (e.g., "name": "", "text": "").
+    - Ensure there are no trailing commas in any JSON object or array.
+    - Ensure content is 1200-1500 words total across sections.
+    - Include stats, examples, or step-by-step tips to add depth.
+    - "schemaMarkup" must be a single-line string with escaped quotes, e.g., "{\\"@context\\": \\"https://schema.org\\"}".
+    - Add an "images" array with at least one image suggestion.
+    `;
+
     const contentResponse = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [{ role: "user", content: contentPrompt }],
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: contentPrompt }],
       max_tokens: 4000,
       temperature: 0.6,
       presence_penalty: 0.5,
@@ -335,21 +326,51 @@ You are a top-tier SEO content strategist. Generate a highly optimized blog arti
     });
 
     let rawContent = contentResponse.choices[0].message.content.trim();
-    console.log("Raw AI Response:", rawContent);
+    console.log('Raw AI Response:', rawContent);
 
-    // Use jsonrepair to fix any broken JSON
-    let repairedJson;
+    // Manually fix common JSON issues before jsonrepair
+    rawContent = manualFixJson(rawContent);
+
+    let generatedContent;
     try {
-      repairedJson = jsonrepair(rawContent);
-    } catch (repairError) {
-      console.error("JSON Repair Error:", repairError);
-      throw new Error("Unable to repair JSON response");
+      let repairedJson;
+      try {
+        repairedJson = jsonrepair(rawContent);
+      } catch (repairError) {
+        console.error('JSON Repair Error:', repairError);
+        throw new Error('Unable to repair JSON response');
+      }
+      generatedContent = JSON.parse(repairedJson);
+    } catch (error) {
+      console.error('JSON Parsing Failed:', error);
+      // Fallback content if JSON parsing fails
+      generatedContent = {
+        title: "Fallback Article Title",
+        metaDescription: "This is a fallback article due to generation issues.",
+        proposedUrl: "/fallback-article",
+        introduction: "We encountered an issue generating the full article. Please try again later.",
+        sections: [
+          {
+            heading: "Section 1",
+            subheadings: ["Subheading 1", "Subheading 2"],
+            content: ["This is a fallback section.", "Please try generating the article again."]
+          }
+        ],
+        keyTakeaways: ["Fallback point 1", "Fallback point 2", "Fallback point 3"],
+        faqs: [
+          { question: "What happened?", answer: "There was an issue generating the article." },
+          { question: "What should I do?", answer: "Please try again later." }
+        ],
+        conclusion: "We apologize for the inconvenience. Contact support if the issue persists.",
+        internalLinks: ["/about", "/contact"],
+        schemaMarkup: "{\"@context\": \"https://schema.org\", \"@type\": \"Article\", \"headline\": \"Fallback Article Title\", \"description\": \"This is a fallback article due to generation issues.\"}",
+        images: [
+          { url: "/images/fallback-image.jpg", altText: "Fallback image" }
+        ]
+      };
     }
 
-    // Parse the repaired JSON
-    const generatedContent = JSON.parse(repairedJson);
-
-    // Ensure sections.content is an array of strings
+    // Ensure sections.content is an array
     generatedContent.sections = generatedContent.sections.map(section => {
       if (!Array.isArray(section.content)) {
         section.content = [JSON.stringify(section.content)];
@@ -357,24 +378,81 @@ You are a top-tier SEO content strategist. Generate a highly optimized blog arti
       return section;
     });
 
-    // Ensure schemaMarkup and images are properly formatted
+    // Ensure schemaMarkup is a string
     if (typeof generatedContent.schemaMarkup !== 'string') {
       generatedContent.schemaMarkup = JSON.stringify(generatedContent.schemaMarkup);
     }
+
+    // Ensure images is an array
     if (!Array.isArray(generatedContent.images)) {
       generatedContent.images = [];
     }
 
+    // Save the generated content to the Content collection
+    const content = new Content({
+      type: 'Article',
+      businessId: business._id,
+      userId: req.user._id,
+      data: generatedContent,
+      status: 'Draft',
+    });
+    await content.save();
+
+    // Increment article generation count (bypass in development and for EditEdge users)
+    console.log(`NODE_ENV: ${process.env.NODE_ENV}, isEditEdgeUser: ${user.isEditEdgeUser}`);
+    if (process.env.NODE_ENV !== 'development' && !user.isEditEdgeUser) {
+      console.log(`Before increment: articleGenerationCount=${user.articleGenerationCount}`);
+      user.articleGenerationCount += 1;
+      try {
+        await user.save();
+        console.log(`After increment: articleGenerationCount=${user.articleGenerationCount}`);
+        // Verify the update by fetching the user again
+        const updatedUser = await User.findById(req.user._id);
+        console.log(`Verified articleGenerationCount after save: ${updatedUser.articleGenerationCount}`);
+      } catch (saveError) {
+        console.error('Error saving user with incremented count:', saveError);
+        throw new Error('Failed to update article generation count');
+      }
+    } else {
+      console.log('Skipping articleGenerationCount increment due to development mode or EditEdge user');
+    }
+
+    // Update the business's contentHistory
+    await Business.findByIdAndUpdate(business._id, {
+      $push: { contentHistory: content._id },
+    });
+
+    // Update user's personalContent array
+    await User.findByIdAndUpdate(req.user._id, {
+      $push: { personalContent: content._id },
+    });
+
+    // Mark free trial as used if applicable (bypass in development)
+    if (process.env.NODE_ENV !== 'development' && user.subscription === 'None' && !user.freeTrialUsed) {
+      await User.findByIdAndUpdate(req.user._id, { freeTrialUsed: true });
+    }
+
     req.session.generatedContent = generatedContent;
-    res.json({ redirect: "/blog-article/generated-article" });
+
+    // Check if the user has 1 generation left after this generation
+    const articleLimits = {
+      Basic: 2, // 2 articles per week
+      Pro: 3,  // 3 articles per week
+      Enterprise: 10, // Temporary limit for Enterprise (can be customized per agreement)
+    };
+    const userArticleLimit = articleLimits[user.subscription] || 0;
+    const remainingArticles = userArticleLimit - user.articleGenerationCount;
+    const response = { redirect: '/blog-article/generated-article' };
+    if (process.env.NODE_ENV !== 'development' && !user.isEditEdgeUser && remainingArticles === 1) {
+      response.warning = `You have 1 article generation left this week for the ${user.subscription} plan.`;
+    }
+
+    res.json(response);
   } catch (error) {
-    console.error("Error generating article:", error);
-    res.status(500).json({ error: "Error generating content. Please try again." });
+    console.error('Error generating article:', error);
+    res.status(500).json({ error: 'Error generating content. Please try again.', details: error.message });
   }
 });
-
-
-
 
 // Step 6: Save business details prompt
 router.get("/save-details-prompt", (req, res) => {

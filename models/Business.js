@@ -1,5 +1,4 @@
 const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
 
 const BusinessSchema = new mongoose.Schema({
   companyName: {
@@ -9,65 +8,97 @@ const BusinessSchema = new mongoose.Schema({
   },
   description: {
     type: String,
-    default: '',
+    required: true,
+    trim: true,
   },
   services: {
     type: String,
-    default: '',
+    required: true,
+    trim: true,
   },
   targetAudience: {
     type: String,
-    default: '',
+    required: true,
+    trim: true,
   },
   demographic: {
     type: String,
     default: '',
+    trim: true,
   },
   address: {
     type: String,
     default: '',
+    trim: true,
   },
   email: {
     type: String,
     default: '',
+    trim: true,
   },
   phoneNumber: {
     type: String,
     default: '',
+    trim: true,
   },
   brandTone: {
     type: String,
     default: 'professional',
+    trim: true,
   },
   socialMediaType: {
     type: String,
     default: '',
+    trim: true,
   },
   hasWebsite: {
     type: String,
     default: 'no',
+    trim: true,
   },
   companyWebsite: {
     type: String,
     default: '',
+    trim: true,
   },
-  password: {
-    type: String,
+  owner: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
     required: true,
+  },
+  members: [
+    {
+      user: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true,
+      },
+      role: {
+        type: String,
+        enum: ['Admin', 'Editor', 'Viewer'],
+        default: 'Editor',
+      },
+    },
+  ],
+  contentHistory: [
+    {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Content',
+    },
+  ],
+  createdAt: {
+    type: Date,
+    default: Date.now,
+  },
+  updatedAt: {
+    type: Date,
+    default: Date.now,
   },
 });
 
-// Static method to hash password
-BusinessSchema.statics.hashPassword = async function (password) {
-  console.log('hashPassword method called with password:', password);
-  return await bcrypt.hash(password, 10);
-};
-
-// Instance method to compare password
-BusinessSchema.methods.comparePassword = async function (candidatePassword) {
-  console.log('comparePassword method called with candidatePassword:', candidatePassword);
-  console.log('Stored hashed password:', this.password);
-  return await bcrypt.compare(candidatePassword, this.password);
-};
+BusinessSchema.pre('save', function (next) {
+  this.updatedAt = Date.now();
+  next();
+});
 
 module.exports = mongoose.model('Business', BusinessSchema);

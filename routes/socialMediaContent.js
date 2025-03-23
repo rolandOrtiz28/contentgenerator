@@ -1,8 +1,13 @@
+require("dotenv").config();
 const express = require('express');
 const router = express.Router();
 const OpenAI = require("openai");
 const axios = require('axios');
 const Business = require('../models/Business');
+const { suggestSocialMediaDetails } = require("../utils/socialMediaSuggester");
+const Content = require('../models/Content');
+const User = require('../models/User');
+const { ensureAuthenticated, ensureBusinessRole } = require('../middleware/auth');
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -31,48 +36,72 @@ router.get("/branding-social", async (req, res) => {
   }
 });
 
-// New route for content details form
-router.get("/content-details", (req, res) => {
-  if (!req.session.tempBusinessDetails && !req.session.businessDetails) {
-    return res.status(400).json({ redirect: "/social-media/branding-social" });
+
+
+router.get('/content-details', ensureAuthenticated, async (req, res) => {
+  const businessId = req.session.businessId;
+
+  if (!businessId) {
+    return res.status(400).json({
+      error: 'No business selected. Please start the process again.',
+      redirect: '/social-media/branding-social',
+    });
   }
 
-  const businessDetails = req.session.businessDetails || req.session.tempBusinessDetails;
-  res.json({
-    business: {
-      companyName: businessDetails.companyName,
-      description: businessDetails.description,
-      services: businessDetails.services,
-      focusService: businessDetails.focusService,
-      targetAudience: businessDetails.targetAudience,
-      brandTone: businessDetails.brandTone,
-      socialMediaType: businessDetails.socialMediaType,
-    },
-    error: null,
-  });
+  try {
+    const business = await Business.findOne({ _id: businessId, owner: req.user._id });
+    if (!business) {
+      return res.status(404).json({
+        error: 'Business not found',
+        redirect: '/social-media/branding-social',
+      });
+    }
+
+    const businessDetails = {
+      companyName: business.companyName,
+      description: business.description,
+      services: business.services,
+      focusService: business.focusService,
+      targetAudience: business.targetAudience,
+      brandTone: business.brandTone,
+      socialMediaType: business.socialMediaType || 'Facebook Post',
+      purpose: business.purpose || 'Promote',
+      topic: business.topic || '',
+      contentPillar: business.contentPillar || 'Educate',
+      keyMessage: business.keyMessage || '',
+      adDetails: business.adDetails || '',
+    };
+
+    // Ensure focusService is set
+    if (!businessDetails.focusService) {
+      console.warn('focusService not set, defaulting to first service.');
+      businessDetails.focusService = businessDetails.services?.split(',').map(s => s.trim())[0] || 'business solutions';
+      business.focusService = businessDetails.focusService;
+      await business.save();
+    }
+
+    const socialMediaSuggestions = await suggestSocialMediaDetails(businessDetails);
+
+    res.json({
+      business: businessDetails,
+      socialMediaSuggestions: {
+        suggestedKeyMessages: socialMediaSuggestions.suggestedKeyMessages,
+        suggestedAdDetails: socialMediaSuggestions.suggestedAdDetails,
+      },
+      error: null,
+    });
+  } catch (error) {
+    console.error('Error fetching business details:', error);
+    res.status(500).json({ error: 'Failed to fetch business details' });
+  }
 });
 
+
+
+
 // Handle business selection or new details
-router.post("/generate-content-social", async (req, res) => {
-  const { 
-    companyName, 
-    description, 
-    targetAudience, 
-    services,
-    focusService, 
-    socialMediaType,   
-    brandTone,
-    purpose, 
-    topic, 
-    theme, 
-    hashtags,
-    cta,
-    adDetails 
-  } = req.body;
-
-  let businessData;
-
-  console.log("Received form data for generate-content-social:", {
+router.post('/generate-content-social', ensureAuthenticated, ensureBusinessRole('Editor'), async (req, res) => {
+  const {
     companyName,
     description,
     targetAudience,
@@ -82,231 +111,424 @@ router.post("/generate-content-social", async (req, res) => {
     brandTone,
     purpose,
     topic,
-    theme,
-    hashtags,
-    cta,
-    adDetails
-  });
+    contentPillar,
+    keyMessage,
+    adDetails,
+  } = req.body;
 
-  console.log("Current session state before processing:", req.session);
+  try {
+    // Fetch the user
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
 
-  if (!companyName && req.session.businessDetails) {
-    businessData = {
-      companyName: req.session.businessDetails.companyName,
-      description: req.session.businessDetails.description,
-      targetAudience: req.session.businessDetails.targetAudience,
-      services: req.session.businessDetails.services,
-      focusService: focusService || req.session.businessDetails.focusService,
-      socialMediaType,
-      brandTone,
-      purpose,
-      topic,
-      theme,
-      hashtags,
-      cta,
-      adDetails
+    // Check free trial or subscription (bypass in development)
+    if (process.env.NODE_ENV !== 'development' && user.subscription === 'None' && user.freeTrialUsed) {
+      return res.status(403).json({
+        error: 'You have already used your free trial. Please subscribe to continue.',
+        redirect: '/subscribe',
+      });
+    }
+
+    // Check social media generation limits (bypass in development and for EditEdge users)
+    if (process.env.NODE_ENV !== 'development' && !user.isEditEdgeUser) {
+      // Reset count if the weekly cycle has ended
+      const now = new Date();
+      if (!user.contentGenerationResetDate || now > user.contentGenerationResetDate) {
+        user.articleGenerationCount = 0;
+        user.socialMediaGenerationCount = 0;
+        user.contentGenerationResetDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // Reset weekly
+        await user.save();
+      }
+
+      // Define limits based on subscription plan
+      const socialMediaLimits = {
+        Basic: 3, // 3 social media posts per week
+        Pro: 5,  // 5 social media posts per week
+        Enterprise: 15, // Temporary limit for Enterprise (can be customized per agreement)
+      };
+
+      const userSocialMediaLimit = socialMediaLimits[user.subscription] || 0;
+      if (user.subscription !== 'None' && user.socialMediaGenerationCount >= userSocialMediaLimit) {
+        return res.status(403).json({
+          error: `You have reached your social media content generation limit of ${userSocialMediaLimit} for the ${user.subscription} plan this week. Please upgrade your plan or wait until next week.`,
+          redirect: '/subscribe',
+        });
+      }
+    }
+
+    // Fetch the business using req.session.businessId
+    const businessId = req.session.businessId;
+    if (!businessId) {
+      return res.status(400).json({
+        error: 'No business selected. Please start the process again.',
+        redirect: '/social-media/branding-social',
+      });
+    }
+
+    const business = await Business.findById(businessId);
+    if (!business) {
+      return res.status(400).json({
+        error: 'Business not found.',
+        redirect: '/social-media/branding-social',
+      });
+    }
+
+    // Use the existing business data instead of overwriting it
+    const businessData = {
+      companyName: business.companyName,
+      description: business.description,
+      targetAudience: business.targetAudience,
+      services: business.services,
+      focusService: business.focusService || focusService || business.services.split(',')[0].trim(),
+      socialMediaType: socialMediaType || 'Facebook Post',
+      brandTone: business.brandTone || brandTone || 'professional',
+      purpose: purpose || 'Promote',
+      topic: topic || 'Untitled Topic',
+      contentPillar: contentPillar || 'Educate',
+      keyMessage: keyMessage || 'Highlight our services',
+      adDetails: adDetails || 'No additional details',
     };
-    console.log("Using registered business details:", req.session.businessDetails);
-  } else {
-    businessData = {
-      companyName: companyName || "Unnamed Company",
-      description: description || "No description provided.",
-      targetAudience: targetAudience || "General audience",
-      services: services || "General services",
-      focusService: focusService || "All services",
-      socialMediaType: socialMediaType || "post",
-      brandTone: brandTone || "professional",
-      purpose: purpose || "Promote services",
-      topic: topic || "No description provided.",
-      theme: theme || "Educational",
-      hashtags: hashtags || [],
-      cta: cta || "Follow us for more!",
-      adDetails: adDetails || "No additional details"
-    };
-  
-    req.session.tempBusinessDetails = businessData;
-    req.session.businessDetails = null;
-    console.log("Temp business details stored in session:", req.session.tempBusinessDetails);
+
+    console.log('Using business data for content generation:', businessData);
+
+    // Generate the social media content
+    await generateSocialMediaContent(req, res, businessData, business, user);
+  } catch (error) {
+    console.error('Error in generate-content-social:', error);
+    res.status(500).json({ error: 'Error processing request. Please try again.', details: error.message });
   }
-
-  console.log("Session state after storing tempBusinessDetails:", req.session);
-
-  await generateSocialMediaContent(req, res, businessData);
 });
 
-async function generateSocialMediaContent(req, res, data) {
-  const { companyName, description, targetAudience, services, focusService, socialMediaType, brandTone, purpose, topic, theme, hashtags, cta, adDetails } = data;
+async function generateSocialMediaContent(req, res, data, business, user) {
+  const {
+    companyName,
+    description,
+    targetAudience,
+    services,
+    focusService,
+    socialMediaType,
+    brandTone,
+    purpose,
+    topic,
+    contentPillar,
+    keyMessage,
+    adDetails,
+  } = data;
 
   if (!data || Object.keys(data).length === 0) {
-    console.error("❌ Error: `data` is missing or empty!");
-    return res.status(400).send("❌ Error: No data provided for content generation.");
+    console.error('❌ Error: `data` is missing or empty!');
+    return res.status(400).json({ error: 'No data provided for content generation.' });
   }
   if (!socialMediaType) {
-    console.error("❌ Error: `socialMediaType` is missing!");
-    return res.status(400).send("❌ Error: Please select a social media type.");
+    console.error('❌ Error: `socialMediaType` is missing!');
+    return res.status(400).json({ error: 'Please select a social media type.' });
   }
 
-  console.log("✅ Generating content for:", socialMediaType);
-  console.log("Business data used:", data);
+  console.log('✅ Generating content for:', socialMediaType);
+  console.log('Business data used:', data);
 
-  let themeDescription = "";
-
-  switch (theme) {
-    case "Educational":
-      themeDescription = "Provide an informative and insightful post about the topic. The content should explain concepts clearly and educate the audience with useful knowledge.";
+  // Platform-specific settings
+  let platform = socialMediaType.split(' ')[0];
+  let captionLimit, hashtagCount;
+  switch (platform) {
+    case 'Facebook':
+      captionLimit = '1-100 characters';
+      hashtagCount = '1-2';
       break;
-    case "Tips":
-      themeDescription = "Provide at least **3 to 5 expert tips** related to the topic. Each tip should be short, clear, and actionable for the audience.";
+    case 'Instagram':
+      captionLimit = '138-150 characters';
+      hashtagCount = '3-5';
       break;
-    case "Advertising":
-      themeDescription = "Focus on promoting a product or service. Highlight its benefits and why the audience should consider it.";
+    case 'LinkedIn':
+      captionLimit = '25 words';
+      hashtagCount = '1-2';
       break;
-    case "Motivational":
-      themeDescription = "Create an inspiring post related to the business, encouraging the audience with uplifting messages.";
-      break;
-    case "Engagement":
-      themeDescription = "Include a question, quiz, or poll to encourage interaction. Make sure the content invites the audience to respond.";
-      break;
-    case "Entertainment":
-      themeDescription = "Generate a fun and engaging post, such as a meme, joke, or interesting fun fact related to the topic.";
-      break;
-    case "News & Updates":
-      themeDescription = "Share the latest announcements, updates, or industry news related to the business.";
-      break;
-    case "About":
-      themeDescription = "Provide an informative post about the company, its mission, values, and what makes it unique.";
+    case 'Tiktok':
+      captionLimit = '300 characters';
+      hashtagCount = '2-3';
       break;
     default:
-      themeDescription = "Generate a post related to the topic with a general informative or promotional approach.";
+      captionLimit = '71-100 characters';
+      hashtagCount = '1-2';
+  }
+
+  // Content pillar description
+  let pillarDescription = '';
+  switch (contentPillar) {
+    case 'Educate':
+      pillarDescription = 'Provide an informative and insightful post about the topic. The content should explain concepts clearly and educate the audience with useful knowledge (e.g., tips, FAQs, Top 10 lists, Did you know?).';
       break;
+    case 'Entertain':
+      pillarDescription = 'Create an entertaining post that’s intriguing, quick, and punchy. Include unusual stories, behind-the-scenes, or fun facts related to the topic.';
+      break;
+    case 'Inspire':
+      pillarDescription = 'Generate an inspiring post that’s positive or memorable, with emotional impact. Include people-focused stories or content about social responsibility/community involvement.';
+      break;
+    case 'Promote':
+      pillarDescription = 'Focus on encouraging the audience to take the next step. Highlight benefits, include a clear call to action (e.g., shop now, enter a contest, see the link in bio).';
+      break;
+    default:
+      pillarDescription = 'Generate a post related to the topic with a general informative or promotional approach.';
+  }
+
+  // Platform-specific instructions
+  let platformInstructions = '';
+  switch (platform) {
+    case 'Facebook':
+      platformInstructions = `
+- Create an emotional connection or sense of intrigue to capture attention quickly.
+- Make the post actionable (e.g., ask a question or share a link).
+- Prioritize video content if applicable, with captions for accessibility.
+- Keep the tone conversational and concise.`;
+      break;
+    case 'Instagram':
+      platformInstructions = `
+- Focus on strong visuals (bold, colorful, high-quality).
+- Use branded hashtags to encourage organic growth.
+- For Stories, include a link if applicable (e.g., "Swipe up to learn more").
+- Keep the tone visually engaging and trendy.`;
+      break;
+    case 'LinkedIn':
+      platformInstructions = `
+- Use a professional tone, positioning the brand as a thought leader.
+- Keep copy brief, use formatting (bullets, line breaks) for readability.
+- Share industry-related insights or company news.
+- Target the audience directly (e.g., "For marketing professionals...").`;
+      break;
+    case 'Tiktok':
+      platformInstructions = `
+- Create a fun, short-form video with a trendy vibe.
+- Incorporate trending topics or hashtags (e.g., #TrendAlert).
+- Use engaging audio to enhance memorability.
+- Encourage user-generated content (e.g., "Tag us in your videos!").`;
+      break;
+    default:
+      platformInstructions = `
+- Keep the tone conversational and engaging.
+- Use a question or curiosity-driven approach to capture attention.`;
   }
 
   let prompt = `
-Generate a Social Media ${socialMediaType === "reel" || socialMediaType === "story" ? "Video (Reel/Story)" : "Post"} for ${companyName}.
-- Content must strictly follow this theme: **${theme}**.
-- **Theme Guidelines:** ${themeDescription}
-- Provide ALL fields in the exact format below.
-- For reels/stories: Include **3 to 5 scenes** in "Video Script & Structure" and **3 to 5 unique texts** in "Text on Screen".
-- "Video Script & Structure": Describe the video actions (e.g., "Show a raw video clip").
-- "Text on Screen": Short, catchy text for each scene, DIFFERENT from the script (e.g., "Boost Your Video! 🌟").
-- NO duplication between script and text on screen.
+Generate a Social Media ${socialMediaType} for ${companyName}.
+- Content must strictly follow this pillar: **${contentPillar}**.
+- **Pillar Guidelines:** ${pillarDescription}
+- **Platform:** ${platform}
+- **Platform Guidelines:** ${platformInstructions}
+- Caption must be within ${captionLimit}.
+- Avoid repetitive phrases like "Let's dive in!" in the caption. Be creative and vary the ending.
+- Include ${hashtagCount} relevant hashtags, tailored to the platform.
+- Add 2-3 relevant emojis to the caption for engagement (e.g., 🌟, 🚀, 💡), but keep it professional.
+- Generate a CTA that encourages interaction (e.g., ask a question, invite to learn more, try a product, purchase).
+- Use natural, human-like language to avoid AI detection.
+- Vary sentence structure and tone to sound conversational.
 - Tone: "${brandTone || 'professional'}".
 - Use this data:
-- Topic: ${topic || "Untitled Topic"}
-- Description: ${description || "A creative agency offering top-tier services."}
-- Services: ${services || "General services"}
-- Focus Product/Service: ${focusService ? focusService : "All services"}
-- Target Audience: ${targetAudience || "General audience"}
-- Purpose: ${purpose || "Promote services"}
-- Theme: ${theme || "Generic theme"}
-- Hashtags: ${hashtags.join(', ')}
-- CTA: ${cta}
-- Details: ${adDetails || "No additional details"}
+  - Topic: ${topic || 'Untitled Topic'}
+  - Key Message: ${keyMessage || 'Highlight our services'}
+  - Description: ${description || 'A creative agency offering top-tier services.'}
+  - Services: ${services || 'General services'}
+  - Focus Product/Service: ${focusService ? focusService : 'All services'}
+  - Target Audience: ${targetAudience || 'General audience'}
+  - Purpose: ${purpose || 'Promote'}
+  - Details: ${adDetails || 'No additional details'}
 
 **FORMAT EXACTLY LIKE THIS:**
-
 `;
 
-  if (socialMediaType === "reel" || socialMediaType === "story") {
+  if (socialMediaType.includes('Reel') || socialMediaType.includes('Story') || socialMediaType === 'Tiktok Video') {
     prompt += `
 ---
 **Video Concept:** [2-3 sentences describing the video idea based on topic/purpose]  
-**Caption:** [Ensure this follows the theme, e.g., tips list, educational insights, engaging questions, etc.]  
-**Hashtags:** [4-5 relevant hashtags]  
-**CTA:** ${cta}  
-**Video Script & Structure:**  
-- **Scene 1:** [Action for scene 1]  
-- **Scene 2:** [Action for scene 2]  
-- **Scene 3:** [Action for scene 3]  
-- **Scene 4:** [Action for scene 4] *(Optional: Max 5 scenes)*  
-- **Scene 5:** [Action for scene 5] *(Optional: Max 5 scenes)*  
-**Text on Screen:**  
-- **Scene 1:** [Unique text for scene 1]  
-- **Scene 2:** [Unique text for scene 2]  
-- **Scene 3:** [Unique text for scene 3]  
-- **Scene 4:** [Unique text for scene 4] *(Optional: Max 5 scenes)*  
-- **Scene 5:** [Unique text for scene 5] *(Optional: Max 5 scenes)*  
+**Caption:** [Within ${captionLimit}, include 2-3 emojis, follow the pillar, avoid "Let's dive in!"]  
+**Hashtags:** [${hashtagCount} relevant hashtags, include a branded hashtag if applicable]  
+**CTA:** [Engaging call to action]  
+**Video Script & Structure (Timestamped Table):**  
+- **0-3 sec:** [Hook: Attention-grabbing scene description] | [Assets to use] | [Animation style]  
+- **3-6 sec:** [Scene description addressing a problem or myth] | [Assets to use] | [Animation style]  
+- **6-9 sec:** [Scene description debunking the myth or providing a solution] | [Assets to use] | [Animation style]  
+- **9-12 sec:** [Scene description with a question or key insight] | [Assets to use] | [Animation style]  
+- **12-15 sec:** [Scene description addressing a limiting belief] | [Assets to use] | [Animation style]  
+- **15-18 sec:** [Scene description highlighting a challenge] | [Assets to use] | [Animation style]  
+- **18-20 sec:** [Call to action scene] | [Assets to use, include company logo] | [Animation style]  
 **Assets:** [Assets like footage, logos, etc.]  
 ---
 `;
-  } else if (socialMediaType === "post") {
+  } else {
     prompt += `
 ---
-**Caption:** [Catchy caption tied to theme]  
-**Hashtags:** [4-5 relevant hashtags]
-**Main Content:** [Ensure this follows the theme, e.g., tips list, educational insights, engaging questions, etc.]  
-**CTA:** ${cta}  
+**Caption:** [Within ${captionLimit}, include 2-3 emojis, follow the pillar, avoid "Let's dive in!"]  
+**Hashtags:** [${hashtagCount} relevant hashtags, include a branded hashtag if applicable]  
+**Main Content:** [Follow the pillar, e.g., tips list, educational insights, engaging questions, etc.]  
+**CTA:** [Engaging call to action]  
 **Texts on Poster:** [Short text for poster]  
 **Assets:** [Assets like images, icons, etc.]  
 ---
 `;
   }
 
-  try {
-    const aiResponse = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [{ role: "user", content: prompt }],
-      max_tokens: 800,
-      temperature: 0.5,
-      presence_penalty: 0.2,
-      frequency_penalty: 0.2
-    });
+  const aiResponse = await openai.chat.completions.create({
+    model: 'gpt-4o-mini',
+    messages: [{ role: 'user', content: prompt }],
+    max_tokens: 800,
+    temperature: 0.7,
+    presence_penalty: 0.3,
+    frequency_penalty: 0.3,
+  });
 
-    const generatedContent = aiResponse.choices[0].message.content.trim();
-    console.log("✅ AI Raw Response:\n", generatedContent);
+  const generatedContent = aiResponse.choices[0].message.content.trim();
+  console.log('✅ AI Raw Response:\n', generatedContent);
 
-    const scriptPattern = /\*\*Video Script & Structure:\*\*([\s\S]*?)\n\*\*/;
-    const textOnScreenPattern = /\*\*Text on Screen:\*\*([\s\S]*?)\n\*\*/;
+  // Split the response into lines for more robust parsing
+  const lines = generatedContent.split('\n').filter((line) => line.trim());
+  let extractedContent = {
+    companyName,
+    socialMediaType,
+    topic: topic || 'Untitled Topic',
+    description: description || 'A creative agency offering top-tier services.',
+    services: services || 'General services',
+    targetAudience: targetAudience || 'General Audience',
+    caption: '',
+    hashtags: '',
+    cta: '',
+    mainContent: '',
+    assets: '',
+    posterText: '',
+    videoConcept: '',
+    script: [],
+    textOnScreen: '',
+    imageUrl: '',
+  };
 
-    const scriptMatch = generatedContent.match(scriptPattern);
-    const textOnScreenMatch = generatedContent.match(textOnScreenPattern);
+  let currentSection = null;
+  let scriptTable = [];
 
-    let scriptScenes = scriptMatch ? scriptMatch[1].trim().split("\n").map(scene => scene.replace(/^-\s\*\*Scene\s\d:\*\*\s/, "").trim()) : [];
-    let textScenes = textOnScreenMatch ? textOnScreenMatch[1].trim().split("\n").map(text => text.replace(/^-\s\*\*Scene\s\d:\*\*\s/, "").trim()) : [];
+  lines.forEach((line) => {
+    if (line.startsWith('**Caption:**')) {
+      extractedContent.caption = line.replace('**Caption:**', '').trim();
+    } else if (line.startsWith('**Hashtags:**')) {
+      extractedContent.hashtags = line.replace('**Hashtags:**', '').trim();
+    } else if (line.startsWith('**CTA:**')) {
+      extractedContent.cta = line.replace('**CTA:**', '').trim();
+    } else if (line.startsWith('**Main Content:**')) {
+      currentSection = 'mainContent';
+      extractedContent.mainContent = line.replace('**Main Content:**', '').trim();
+    } else if (line.startsWith('**Assets:**')) {
+      currentSection = null;
+      extractedContent.assets = line.replace('**Assets:**', '').trim();
+    } else if (line.startsWith('**Texts on Poster:**')) {
+      currentSection = null;
+      extractedContent.posterText = line.replace('**Texts on Poster:**', '').trim();
+    } else if (line.startsWith('**Video Concept:**')) {
+      currentSection = null;
+      extractedContent.videoConcept = line.replace('**Video Concept:**', '').trim();
+    } else if (line.startsWith('**Video Script & Structure (Timestamped Table):**')) {
+      currentSection = 'script';
+    } else if (line.startsWith('**Text on Screen:**')) {
+      currentSection = 'textOnScreen';
+    } else if (currentSection === 'mainContent' && line.trim()) {
+      let cleanedLine = line.trim().replace(/\*\*(.*?)\*\*/g, '$1');
+      extractedContent.mainContent += '\n' + cleanedLine;
+    } else if (currentSection === 'script' && line.match(/^\-\s\*\*\d+-\d+\ssec:\*\*/)) {
+      const parts = line.split('|').map(part => part.trim());
+      if (parts.length >= 3) {
+        const timestampMatch = parts[0].match(/^\-\s\*\*(\d+-\d+\ssec):\*\*/);
+        if (timestampMatch) {
+          const timestamp = timestampMatch[1];
+          const sceneDescription = parts[0].replace(/^\-\s\*\*\d+-\d+\ssec:\*\*/, '').trim();
+          const assetsToUse = parts[1] || 'No assets specified';
+          const animationStyle = parts[2] || 'No animation specified';
+          scriptTable.push({ timestamp, sceneDescription, assetsToUse, animationStyle });
+        }
+      }
+    } else if (currentSection === 'textOnScreen' && line.match(/^\-\s\*\*Scene\s\d:\*\*/)) {
+      extractedContent.textOnScreen += line.replace(/^\-\s\*\*Scene\s\d:\*\*\s/, '').trim() + '\n';
+    }
+  });
 
-    while (scriptScenes.length < 3) scriptScenes.push(`Scene ${scriptScenes.length + 1} content missing`);
-    while (textScenes.length < 3) textScenes.push(`Scene ${textScenes.length + 1} text missing`);
-    if (scriptScenes.length > 5) scriptScenes = scriptScenes.slice(0, 5);
-    if (textScenes.length > 5) textScenes = textScenes.slice(0, 5);
+  // Convert hashtags string to array
+  extractedContent.hashtags = extractedContent.hashtags
+    ? extractedContent.hashtags.split(' ').filter((tag) => tag.trim())
+    : ['#DefaultHashtag'];
 
-    const extractedContent = {
-      companyName,
-      socialMediaType,
-      topic: topic || "Untitled Topic",
-      description: description || "A creative agency offering top-tier services.",
-      services: services || "General services",
-      targetAudience: targetAudience || "General Audience",
-      caption: generatedContent.match(/\*\*Caption:\*\* (.+)/)?.[1] || "Contact us for amazing content!",
-      hashtags: generatedContent.match(/\*\*Hashtags:\*\* (.+)/)?.[1] || hashtags.join(', '),
-      cta: generatedContent.match(/\*\*CTA(?: Options)?:\*\* (.+)/)?.[1] || cta,
-      mainContent: generatedContent.match(/\*\*Main Content:\*\*([\s\S]+?)\n\*\*/)?.[1]?.trim() || "No content provided.",
-      assets: generatedContent.match(/\*\*Assets:\*\* (.+)/)?.[1] || "Generic assets",
-      ...(socialMediaType === "reel" || socialMediaType === "story" ? {
-        videoConcept: generatedContent.match(/\*\*Video Concept:\*\* (.+)/)?.[1] || "Showcase our services.",
-        script: scriptScenes.join("\n"),
-        textOnScreen: textScenes.join("\n"),
-      } : {}),
-      ...(socialMediaType === "post" ? {
-        posterText: generatedContent.match(/\*\*Texts? on Poster:\*\* (.+)/)?.[1] || "Default poster text",
-      } : {})
-    };
+  // Add placeholder image URL
+  extractedContent.imageUrl = 'https://via.placeholder.com/600x400?text=Social+Media+Post+Image';
 
-    console.log("✅ Extracted Content:", extractedContent);
+  // Finalize extracted content
+  extractedContent = {
+    ...extractedContent,
+    ...(socialMediaType.includes('Reel') || socialMediaType.includes('Story') || socialMediaType === 'Tiktok Video'
+      ? {
+          videoConcept: extractedContent.videoConcept || 'Showcase our services.',
+          script: scriptTable.length > 0 ? scriptTable : [],
+          textOnScreen: extractedContent.textOnScreen.trim(),
+        }
+      : {}),
+    ...(socialMediaType.includes('Post')
+      ? {
+          posterText: extractedContent.posterText || 'Default poster text',
+        }
+      : {}),
+  };
 
-    req.session.generatedContent = extractedContent;
-    console.log("✅ Session Content Stored:", req.session.generatedContent);
+  // Fallback values if fields are empty
+  extractedContent.caption = extractedContent.caption || 'Contact us for amazing content! 🌟';
+  extractedContent.cta = extractedContent.cta || 'Learn more!';
+  extractedContent.mainContent = extractedContent.mainContent || 'No content provided.';
+  extractedContent.assets = extractedContent.assets || 'Generic assets';
 
-    console.log("Session state in generateSocialMediaContent:", {
-      businessDetails: req.session.businessDetails,
-      tempBusinessDetails: req.session.tempBusinessDetails
-    });
+  console.log('✅ Extracted Content:', extractedContent);
 
-    res.json(extractedContent);
-  } catch (error) {
-    console.error("❌ Error generating AI content:", error);
-    res.status(500).send("Error generating content. Please try again or contact support.");
+  // Save the generated content to the Content collection
+  const content = new Content({
+    type: 'SocialMedia',
+    businessId: business._id,
+    userId: req.user._id,
+    data: extractedContent,
+    status: 'Draft',
+  });
+  await content.save();
+
+  // Increment social media generation count (bypass in development and for EditEdge users)
+  if (process.env.NODE_ENV !== 'development' && !user.isEditEdgeUser) {
+    user.socialMediaGenerationCount += 1;
+    await user.save();
   }
-};
+
+  // Update the business's contentHistory
+  await Business.findByIdAndUpdate(business._id, {
+    $push: { contentHistory: content._id },
+  });
+
+  // Update user's personalContent array
+  await User.findByIdAndUpdate(req.user._id, {
+    $push: { personalContent: content._id },
+  });
+
+  // Mark free trial as used if applicable (bypass in development)
+  if (process.env.NODE_ENV !== 'development' && user.subscription === 'None' && !user.freeTrialUsed) {
+    await User.findByIdAndUpdate(req.user._id, { freeTrialUsed: true });
+  }
+
+  req.session.generatedContent = extractedContent;
+  console.log('✅ Session Content Stored:', req.session.generatedContent);
+
+  // Check if the user has 1 generation left after this generation
+  const socialMediaLimits = {
+    Basic: 3, // 3 social media posts per week
+    Pro: 5,  // 5 social media posts per week
+    Enterprise: 15, // Temporary limit for Enterprise (can be customized per agreement)
+  };
+  const userSocialMediaLimit = socialMediaLimits[user.subscription] || 0;
+  const remainingSocialMedia = userSocialMediaLimit - user.socialMediaGenerationCount;
+  const response = extractedContent;
+  if (process.env.NODE_ENV !== 'development' && !user.isEditEdgeUser && remainingSocialMedia === 1) {
+    response.warning = `You have 1 social media generation left this week for the ${user.subscription} plan.`;
+  }
+
+  res.json(response);
+}
 
 router.get("/save-details-prompt", (req, res) => {
   if (!req.session.tempBusinessDetails) {
@@ -319,123 +541,6 @@ router.get("/save-details-prompt", (req, res) => {
 });
 
 
-
-// Updated /extract-branding route using Perplexity with cost-saving measures
-router.get("/extract-branding", async (req, res) => {
-  const websiteURL = req.query.website;
-
-  if (!websiteURL) {
-    return res.status(400).json({
-      error: "Website URL is required.",
-    });
-  }
-
-  try {
-    console.log("Processing website:", websiteURL);
-
-    // Check session cache
-    if (req.session.extractedBranding && req.session.extractedBranding.websiteURL === websiteURL) {
-      return res.json({
-        ...req.session.extractedBranding,
-        isRegistered: false,
-      });
-    }
-
-    // Check database cache
-    const existingBusiness = await Business.findOne({ companyWebsite: websiteURL });
-    if (existingBusiness) {
-      req.session.extractedBranding = {
-        companyName: existingBusiness.companyName,
-        description: existingBusiness.description,
-        services: existingBusiness.services,
-        targetAudience: existingBusiness.targetAudience || "Describe Your Target Audience",
-        focusService: existingBusiness.focusService || "Describe what service you want to focus on",
-        websiteURL,
-      };
-      return res.json({
-        ...req.session.extractedBranding,
-        isRegistered: true,
-      });
-    }
-
-    // Check in-memory cache
-    if (cache.has(websiteURL)) {
-      return res.json({
-        ...cache.get(websiteURL),
-        isRegistered: false,
-      });
-    }
-
-    // Query Perplexity API
-    console.log("Fetching data from Perplexity for:", websiteURL);
-
-    const prompt = `
-      Analyze the website at ${websiteURL} and provide:
-      1. Company Name
-      2. Description (50-100 words)
-      3. Services (comma-separated)
-      Use placeholders like "Unknown Company" if data is unavailable.
-    `;
-
-    const response = await perplexityApi.post('/chat/completions', {
-      model: 'mistral-7b-instruct',
-      messages: [
-        { role: 'system', content: 'Extract branding info concisely.' },
-        { role: 'user', content: prompt },
-      ],
-      max_tokens: 150,
-      temperature: 0.5,
-    });
-
-    const perplexityResponse = response.data.choices[0].message.content.trim();
-    console.log("Perplexity Response:", perplexityResponse);
-
-    let companyName = "Unknown Company";
-    let description = "No description available.";
-    let services = "No services found.";
-
-    const lines = perplexityResponse.split('\n');
-    lines.forEach(line => {
-      if (line.startsWith('1. Company Name')) {
-        companyName = line.replace('1. Company Name', '').replace(':', '').trim() || "Unknown Company";
-      } else if (line.startsWith('2. Description')) {
-        description = line.replace('2. Description', '').replace(':', '').trim() || "No description available.";
-      } else if (line.startsWith('3. Services')) {
-        services = line.replace('3. Services', '').replace(':', '').trim() || "No services found.";
-      }
-    });
-
-    req.session.extractedBranding = { companyName, description, services, websiteURL };
-    cache.set(websiteURL, req.session.extractedBranding);
-
-    return res.json({
-      companyName,
-      description,
-      services,
-      targetAudience: "Describe Your Target Audience",
-      focusService: "Describe what service you want to focus on",
-      websiteURL,
-      isRegistered: false,
-    });
-  } catch (error) {
-    console.error("Error with Perplexity API:", error.response?.data || error.message);
-    const urlFallback = new URL(websiteURL);
-    const fallbackData = {
-      companyName: urlFallback.hostname.replace('www.', '').split('.')[0] || "Unknown Company",
-      description: "No description available due to extraction error.",
-      services: "No services found.",
-      targetAudience: "Describe Your Target Audience",
-      focusService: "Describe what service you want to focus on",
-      websiteURL,
-    };
-
-    req.session.extractedBranding = fallbackData;
-    return res.status(500).json({
-      ...fallbackData,
-      error: "Failed to extract website data. Using fallback values.",
-    });
-  }
-});
 
 // Clear in-memory cache every hour (optional)
 setInterval(() => cache.clear(), 60 * 60 * 1000);
