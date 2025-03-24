@@ -49,4 +49,19 @@ router.put('/:id', ensureAuthenticated, async (req, res) => {
     }
   });
 
+  router.put('/me', ensureAuthenticated, async (req, res) => {
+    try {
+      const userId = req.user._id;
+      const { name, email, password } = req.body;
+      const updateData = { name, email };
+      if (password) {
+        updateData.password = await bcrypt.hash(password, 10);
+      }
+      const user = await User.findByIdAndUpdate(userId, updateData, { new: true });
+      res.json({ message: "User updated successfully", user });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update user", details: error.message });
+    }
+  });
+
 module.exports = router;
