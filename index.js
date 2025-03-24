@@ -313,22 +313,6 @@ app.use('/api/content', contentRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/billing', billingRoutes);
 
-// Serve React SPA in production only
-if (isProduction) {
-  app.use(express.static(path.join(__dirname, 'client', 'dist')));
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'client', 'dist', 'index.html'), (err) => {
-      if (err) {
-        console.error("❌ Error serving index.html:", err);
-        res.status(500).json({ error: 'Failed to serve the application' });
-      }
-    });
-  });
-} else {
-  app.get('*', (req, res) => {
-    res.status(404).json({ error: 'Not Found (development mode)' });
-  });
-}
 
 // Error Handling
 app.use((err, req, res, next) => {
