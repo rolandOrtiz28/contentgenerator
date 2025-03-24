@@ -1,7 +1,6 @@
 require("dotenv").config();
 const express = require("express");
 const bodyParser = require("body-parser");
-const path = require("path");
 const OpenAI = require("openai");
 const session = require("express-session");
 const MongoDBStore = require("connect-mongodb-session")(session);
@@ -219,11 +218,8 @@ store.on("error", (error) => {
   console.error("❌ Session store error:", error);
 });
 
-// Session Configuration (only for non-webhook routes)
-app.use((req, res, next) => {
-  if (req.path.startsWith('/api/billing/webhook')) {
-    return next(); // Skip session middleware for webhook
-  }
+// Session Configuration
+app.use(
   session({
     secret: secret,
     name: "_editEdge",
@@ -236,39 +232,22 @@ app.use((req, res, next) => {
       sameSite: "strict",
       maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
     },
-  })(req, res, next);
-});
+  })
+);
 
-// Add logging to verify session middleware (only for non-webhook routes)
+// Add logging to verify session middleware
 app.use((req, res, next) => {
-  if (req.path.startsWith('/api/billing/webhook')) {
-    return next(); // Skip logging for webhook
-  }
   console.log('Session middleware - Session ID:', req.sessionID);
   console.log('Session middleware - Session data:', req.session);
   next();
 });
 
-// Initialize Passport (only for non-webhook routes)
-app.use((req, res, next) => {
-  if (req.path.startsWith('/api/billing/webhook')) {
-    return next(); // Skip Passport for webhook
-  }
-  passport.initialize()(req, res, next);
-});
+// Initialize Passport
+app.use(passport.initialize());
+app.use(passport.session());
 
+// Verify Passport session setup
 app.use((req, res, next) => {
-  if (req.path.startsWith('/api/billing/webhook')) {
-    return next(); // Skip Passport session for webhook
-  }
-  passport.session()(req, res, next);
-});
-
-// Verify Passport session setup (only for non-webhook routes)
-app.use((req, res, next) => {
-  if (req.path.startsWith('/api/billing/webhook')) {
-    return next(); // Skip logging for webhook
-  }
   console.log('Passport middleware - User:', req.user);
   console.log('Passport middleware - Authenticated:', req.isAuthenticated());
   next();
@@ -277,18 +256,14 @@ app.use((req, res, next) => {
 // Middleware
 app.use(bodyParser.urlencoded({ extended: true, limit: "10kb" }));
 app.use(express.json({ limit: "10kb" }));
-app.use(express.static(path.join(__dirname, "public"), {
+app.use(express.static("public", {
   etag: true,
   lastModified: true,
 }));
 app.set("trust proxy", 1);
 
-// Request Logging (only for non-webhook routes)
+// Request Logging
 app.use((req, res, next) => {
-  if (req.path.startsWith('/api/billing/webhook')) {
-    console.log(`${req.method} ${req.path} - ${req.ip}`); // Log webhook requests separately
-    return next();
-  }
   console.log(`${req.method} ${req.path} - ${req.ip}`);
   next();
 });
@@ -312,7 +287,6 @@ app.use('/api/business', businessRoute);
 app.use('/api/content', contentRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/billing', billingRoutes);
-
 
 // Error Handling
 app.use((err, req, res, next) => {
