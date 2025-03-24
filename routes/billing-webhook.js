@@ -84,7 +84,7 @@ require('dotenv').config(); // just in case
   
 //     res.json({ received: true });
 //   });
-router.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
+router.post('/', express.raw({ type: 'application/json' }), (req, res) => {
     console.log('Webhook route hit! Request received:', req.body);
     res.status(200).json({ received: true });
   });
