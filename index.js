@@ -13,13 +13,14 @@ const mongoSanitize = require("express-mongo-sanitize");
 const cors = require("cors");
 const passport = require('passport');
 
+const billingWebhookRoute = require('./routes/billing-webhook');
 const socialMediaRoute = require('./routes/socialMediaContent');
 const articleBlogRoute = require('./routes/articleBlogContent');
 const businessRoute = require('./routes/business');
 const contentRoutes = require('./routes/content');
 const userRoutes = require('./routes/user');
 const authRoute = require('./routes/auth');
-const billingRoutes = require('./routes/billing'); // Add this line
+const billingRoutes = require('./routes/billing');
 require('./config/passport'); // Initialize Passport
 
 const app = express();
@@ -39,12 +40,12 @@ app.use(cors({
       callback(new Error("Not allowed by CORS"));
     }
   },
-  credentials: true, // Allow cookies to be sent with requests
+  credentials: true,
 }));
 
 // Security Headers (Helmet)
 const frameSrcUrls = [
-  "https://js.stripe.com/", // Add Stripe for payment iframes
+  "https://js.stripe.com/",
   "https://www.sandbox.paypal.com/",
   "https://www.facebook.com/",
   "https://my.spline.design/",
@@ -53,7 +54,7 @@ const frameSrcUrls = [
 ];
 
 const scriptSrcUrls = [
-  "https://js.stripe.com/", // Add Stripe for payment scripts
+  "https://js.stripe.com/",
   "https://stackpath.bootstrapcdn.com/",
   "https://cdn.jsdelivr.net/",
   "https://cdnjs.cloudflare.com/",
@@ -81,7 +82,7 @@ const styleSrcUrls = [
 ];
 
 const connectSrcUrls = [
-  "https://api.stripe.com/", // Add Stripe for payment connections
+  "https://api.stripe.com/",
   "https://unsplash.com/",
   "https://prod.spline.design/",
   "https://unpkg.com/",
@@ -159,18 +160,31 @@ const apiLimiter = rateLimit({
   message: "Too many API requests from this IP, please try again later.",
 });
 
+// Apply rate limiting to non-webhook routes
 app.use((req, res, next) => {
+  if (req.path.startsWith('/api/billing/webhook')) {
+    return next(); // Skip rate limiting for webhook
+  }
   if (req.path.startsWith('/socket.io/')) {
     return next();
   }
   generalLimiter(req, res, next);
 });
 
-app.use('/api/', apiLimiter);
+app.use('/api/', (req, res, next) => {
+  if (req.path.startsWith('/billing/webhook')) {
+    return next(); // Skip API limiter for webhook
+  }
+  apiLimiter(req, res, next);
+});
 
 // Security Middleware
 app.use(xss());
 app.use(mongoSanitize());
+
+// Mount the webhook route at the very top, before any other middleware
+console.log('Mounting Stripe webhook route at /api/billing/webhook');
+app.use('/api/billing/webhook', billingWebhookRoute);
 
 // Database Connection
 mongoose.connect(dbUrl, {
@@ -205,8 +219,11 @@ store.on("error", (error) => {
   console.error("❌ Session store error:", error);
 });
 
-// Session Configuration
-app.use(
+// Session Configuration (only for non-webhook routes)
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/billing/webhook')) {
+    return next(); // Skip session middleware for webhook
+  }
   session({
     secret: secret,
     name: "_editEdge",
@@ -215,26 +232,43 @@ app.use(
     store: store,
     cookie: {
       httpOnly: true,
-      secure: isProduction, // Set to false for local development (HTTP)
+      secure: isProduction,
       sameSite: "strict",
       maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
     },
-  })
-);
+  })(req, res, next);
+});
 
-// Add logging to verify session middleware
+// Add logging to verify session middleware (only for non-webhook routes)
 app.use((req, res, next) => {
+  if (req.path.startsWith('/api/billing/webhook')) {
+    return next(); // Skip logging for webhook
+  }
   console.log('Session middleware - Session ID:', req.sessionID);
   console.log('Session middleware - Session data:', req.session);
   next();
 });
 
-// Initialize Passport
-app.use(passport.initialize());
-app.use(passport.session());
-
-// Verify Passport session setup
+// Initialize Passport (only for non-webhook routes)
 app.use((req, res, next) => {
+  if (req.path.startsWith('/api/billing/webhook')) {
+    return next(); // Skip Passport for webhook
+  }
+  passport.initialize()(req, res, next);
+});
+
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/billing/webhook')) {
+    return next(); // Skip Passport session for webhook
+  }
+  passport.session()(req, res, next);
+});
+
+// Verify Passport session setup (only for non-webhook routes)
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/billing/webhook')) {
+    return next(); // Skip logging for webhook
+  }
   console.log('Passport middleware - User:', req.user);
   console.log('Passport middleware - Authenticated:', req.isAuthenticated());
   next();
@@ -242,15 +276,19 @@ app.use((req, res, next) => {
 
 // Middleware
 app.use(bodyParser.urlencoded({ extended: true, limit: "10kb" }));
-app.use(bodyParser.json({ limit: "10kb" }));
+app.use(express.json({ limit: "10kb" }));
 app.use(express.static(path.join(__dirname, "public"), {
   etag: true,
   lastModified: true,
 }));
 app.set("trust proxy", 1);
 
-// Request Logging
+// Request Logging (only for non-webhook routes)
 app.use((req, res, next) => {
+  if (req.path.startsWith('/api/billing/webhook')) {
+    console.log(`${req.method} ${req.path} - ${req.ip}`); // Log webhook requests separately
+    return next();
+  }
   console.log(`${req.method} ${req.path} - ${req.ip}`);
   next();
 });
@@ -273,7 +311,7 @@ app.use('/api/blog-article', articleBlogRoute);
 app.use('/api/business', businessRoute);
 app.use('/api/content', contentRoutes);
 app.use('/api/user', userRoutes);
-app.use('/api/billing', billingRoutes); // Add this line
+app.use('/api/billing', billingRoutes);
 
 // Serve React SPA in production only
 if (isProduction) {
