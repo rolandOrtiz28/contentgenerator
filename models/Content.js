@@ -45,4 +45,4 @@ ContentSchema.pre('save', function (next) {
 });
 
 // Explicitly set the collection name to 'content'
-module.exports = mongoose.model('Content', ContentSchema, 'content');
+module.exports = mongoose.model('Content', ContentSchema);

@@ -26,7 +26,8 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 const secret = process.env.SESSION_SECRET || "default-secret-please-change-me";
-const dbUrl = process.env.DB_URL || "mongodb://127.0.0.1:27017/aicontentgenerator";
+const dbUrl = process.env.DB_URL;
+// || "mongodb://127.0.0.1:27017/aicontentgenerator"
 const isProduction = process.env.NODE_ENV === "production";
 
 // Enable CORS

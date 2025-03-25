@@ -8,6 +8,8 @@ const User = require('../models/User');
 const Comment = require('../models/Comment');
 const { ensureAuthenticated, ensureBusinessRole } = require('../middleware/auth');
 const { sendEmail } = require('../utils/email');
+const { jsPDF } = require('jspdf'); // For generating PDFs (we'll use docx instead for Word)
+const { Document, Packer, Paragraph, TextRun, HeadingLevel } = require('docx'); // For generating Word documents
 
 // Get analytics data for the user's content
 router.get('/analytics', ensureAuthenticated, async (req, res) => {
@@ -15,21 +17,18 @@ router.get('/analytics', ensureAuthenticated, async (req, res) => {
     const userId = req.user._id;
     const { startDate, endDate, businessId } = req.query;
 
-    // Fetch the user with their businesses
     const user = await User.findById(userId).populate('businesses');
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Build the query for content
     const query = {
       $or: [
-        { userId: userId }, // Personal content
-        { businessId: { $in: user.businesses.map(b => b._id) } }, // Business content
+        { userId: userId },
+        { businessId: { $in: user.businesses.map(b => b._id) } },
       ],
     };
 
-    // Apply filters if provided
     if (startDate || endDate) {
       query.createdAt = {};
       if (startDate) {
@@ -47,10 +46,8 @@ router.get('/analytics', ensureAuthenticated, async (req, res) => {
       query.businessId = businessId;
     }
 
-    // Fetch content for analytics
     const content = await Content.find(query);
 
-    // Calculate analytics metrics
     const totalContent = content.length;
     const contentByType = {
       Article: content.filter(c => c.type === 'Article').length,
@@ -64,13 +61,11 @@ router.get('/analytics', ensureAuthenticated, async (req, res) => {
       Archived: content.filter(c => c.status === 'Archived').length,
     };
 
-    // Fetch scheduled content count separately
     const scheduledContent = await Content.find({
       ...query,
       status: 'Scheduled',
     }).countDocuments();
 
-    // Fetch comments count
     const contentIds = content.map(c => c._id);
     const commentsCount = await Comment.countDocuments({ contentId: { $in: contentIds } });
 
@@ -95,23 +90,20 @@ router.get('/scheduled', ensureAuthenticated, async (req, res) => {
     const userId = req.user._id;
     const { startDate, endDate, businessId } = req.query;
 
-    // Fetch the user with their businesses
     const user = await User.findById(userId).populate('businesses');
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Build the query for scheduled content
     const query = {
       $or: [
-        { userId: userId }, // Personal content
-        { businessId: { $in: user.businesses.map(b => b._id) } }, // Business content
+        { userId: userId },
+        { businessId: { $in: user.businesses.map(b => b._id) } },
       ],
       status: 'Scheduled',
       scheduledDate: { $exists: true },
     };
 
-    // Apply filters if provided
     if (startDate || endDate) {
       query.scheduledDate = {};
       if (startDate) {
@@ -129,9 +121,8 @@ router.get('/scheduled', ensureAuthenticated, async (req, res) => {
       query.businessId = businessId;
     }
 
-    // Fetch scheduled content
     const scheduledContent = await Content.find(query)
-      .sort({ scheduledDate: 1 }) // Sort by scheduled date, ascending
+      .sort({ scheduledDate: 1 })
       .populate('businessId', 'companyName')
       .populate('userId', 'email name');
 
@@ -146,31 +137,27 @@ router.get('/scheduled', ensureAuthenticated, async (req, res) => {
 router.get('/history', ensureAuthenticated, async (req, res) => {
   try {
     const userId = req.user._id;
-    const { type, status, businessId } = req.query; // Optional query parameters for filtering
+    const { type, status, businessId } = req.query;
 
-    // Fetch the user with their businesses
     const user = await User.findById(userId).populate('businesses');
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Build the query for content
     const query = {
       $or: [
-        { userId: userId }, // Personal content
-        { businessId: { $in: user.businesses.map(b => b._id) } }, // Business content
+        { userId: userId },
+        { businessId: { $in: user.businesses.map(b => b._id) } },
       ],
     };
 
-    // Apply filters if provided
     if (type) {
-      query.type = type; // e.g., "Article", "SocialMedia"
+      query.type = type;
     }
     if (status) {
-      query.status = status; // e.g., "Draft", "Scheduled", "Published"
+      query.status = status;
     }
     if (businessId) {
-      // Ensure the user has access to the specified business
       const hasAccess = user.businesses.some(b => b._id.toString() === businessId);
       if (!hasAccess) {
         return res.status(403).json({ error: 'You do not have access to this business' });
@@ -178,17 +165,16 @@ router.get('/history', ensureAuthenticated, async (req, res) => {
       query.businessId = businessId;
     }
 
-    // Fetch content with pagination
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
     const content = await Content.find(query)
-      .sort({ createdAt: -1 }) // Sort by creation date, newest first
+      .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
-      .populate('businessId', 'companyName') // Populate business name
-      .populate('userId', 'email name'); // Populate user details
+      .populate('businessId', 'companyName')
+      .populate('userId', 'email name');
 
     const totalContent = await Content.countDocuments(query);
 
@@ -217,7 +203,6 @@ router.get('/:businessId', ensureAuthenticated, async (req, res) => {
       return res.status(404).json({ error: 'Business not found' });
     }
 
-    // Check if user is the owner or a member
     const isOwner = business.owner.toString() === req.user._id.toString();
     const isMember = business.members.some(
       (member) => member.user.toString() === req.user._id.toString()
@@ -236,106 +221,344 @@ router.get('/:businessId', ensureAuthenticated, async (req, res) => {
 });
 
 // Get content by ID
-router.get('/:contentId', ensureAuthenticated, async (req, res) => {
+router.get('/id/:contentId', ensureAuthenticated, async (req, res) => {
   try {
     const { contentId } = req.params;
     const userId = req.user._id;
 
-    console.log("Fetching content with ID:", contentId, "for user ID:", userId);
-
-    // Validate contentId
     if (!contentId || contentId === 'undefined') {
-      console.log("Invalid content ID provided");
       return res.status(400).json({ error: 'Invalid content ID' });
     }
 
-    // Ensure contentId is a valid ObjectId
     if (!mongoose.isValidObjectId(contentId)) {
-      console.log("Invalid ObjectId format for contentId:", contentId);
       return res.status(400).json({ error: 'Invalid content ID format' });
     }
 
-    // Cast contentId to ObjectId
-    const objectId = new ObjectId(contentId);
-    console.log("Querying Content collection with ObjectId:", objectId.toString());
-
-    // Log the database and collection being queried
-    console.log("Database:", mongoose.connection.db.databaseName);
-    console.log("Collection:", Content.collection.collectionName);
-
-    // Fetch the content
-    const content = await Content.findById(objectId)
+    const content = await Content.findById(contentId)
       .populate('businessId', 'companyName')
       .populate('userId', 'email name')
       .exec();
+
     if (!content) {
-      console.log("Content not found in database for ID:", contentId);
       return res.status(404).json({ error: 'Content not found' });
     }
-    console.log("Content found:", content._id.toString(), "Type:", content.type);
 
-    // Check if the user has access to the content
     const user = await User.findById(userId).populate('businesses').exec();
     if (!user) {
-      console.log("User not found for ID:", userId);
       return res.status(404).json({ error: 'User not found' });
     }
-    console.log("User found:", user._id.toString(), "Businesses:", user.businesses.map(b => b._id.toString()));
 
-    const hasAccess = content.userId.toString() === userId.toString() || 
-      (content.businessId && user.businesses.some(b => b._id.toString() === content.businessId.toString()));
+    const contentBusinessId = content.businessId?._id?.toString?.() || content.businessId?.toString();
+
+    const hasAccess =
+      content.userId.toString() === userId.toString() ||
+      user.businesses.some((b) => b._id.toString() === contentBusinessId);
+
     if (!hasAccess) {
-      console.log("User does not have access to content. Content userId:", content.userId.toString(), "Content businessId:", content.businessId?.toString());
       return res.status(403).json({ error: 'You do not have access to this content' });
-    }
-
-    // If the content belongs to a business, check the user's role (any role can view)
-    if (content.businessId) {
-      const business = await Business.findById(content.businessId).exec();
-      if (!business) {
-        console.log("Business not found for ID:", content.businessId.toString());
-        // Allow access if the user is the creator, even if the business is missing
-        if (content.userId.toString() !== userId.toString()) {
-          return res.status(403).json({ error: 'Business not found and you are not the creator of this content' });
-        }
-        console.log("Business not found, but user is the creator, allowing access");
-      } else {
-        console.log("Business found:", business._id.toString(), "Owner:", business.owner.toString(), "Members:", business.members.map(m => m.user.toString()));
-        const isOwner = business.owner.toString() === userId.toString();
-        const member = business.members.find(m => m.user.toString() === userId.toString());
-        if (!isOwner && !member) {
-          console.log("User is neither owner nor member of the business. Owner:", business.owner.toString(), "User ID:", userId.toString());
-          return res.status(403).json({ error: 'You do not have permission to view this content' });
-        }
-      }
     }
 
     res.json({ content });
   } catch (error) {
-    console.error('Error in GET /:contentId route:', error);
+    console.error('Error in GET /api/content/id/:contentId:', error);
     res.status(500).json({ error: 'Failed to fetch content', details: error.message });
   }
 });
 
-// Update content (e.g., status, scheduled date)
+// Copy content
+router.post('/copy/:contentId', ensureAuthenticated, async (req, res) => {
+  try {
+    const { contentId } = req.params;
+    const userId = req.user._id;
+
+    if (!contentId || contentId === 'undefined') {
+      return res.status(400).json({ error: 'Invalid content ID' });
+    }
+
+    if (!mongoose.isValidObjectId(contentId)) {
+      return res.status(400).json({ error: 'Invalid content ID format' });
+    }
+
+    const originalContent = await Content.findById(contentId)
+      .populate('businessId', 'companyName')
+      .populate('userId', 'email name')
+      .exec();
+
+    if (!originalContent) {
+      return res.status(404).json({ error: 'Content not found' });
+    }
+
+    const user = await User.findById(userId).populate('businesses').exec();
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const contentBusinessId = originalContent.businessId?._id?.toString?.() || originalContent.businessId?.toString();
+    const hasAccess =
+      originalContent.userId.toString() === userId.toString() ||
+      user.businesses.some((b) => b._id.toString() === contentBusinessId);
+
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'You do not have access to this content' });
+    }
+
+    // Create a new content document with the same data, but exclude business details
+    const newContent = new Content({
+      type: originalContent.type,
+      businessId: originalContent.businessId, // Keep the same businessId
+      userId: userId,
+      data: { ...originalContent.data }, // Copy the content data (e.g., title, sections, etc.)
+      status: 'Draft', // Set as draft
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    await newContent.save();
+
+    // Add to user's personalContent
+    await User.findByIdAndUpdate(userId, {
+      $push: { personalContent: newContent._id },
+    });
+
+    // Add to business's contentHistory if applicable
+    if (newContent.businessId) {
+      await Business.findByIdAndUpdate(newContent.businessId, {
+        $push: { contentHistory: newContent._id },
+      });
+    }
+
+    res.status(201).json({ message: 'Content copied successfully', content: newContent });
+  } catch (error) {
+    console.error('Error in POST /api/content/copy/:contentId:', error);
+    res.status(500).json({ error: 'Failed to copy content', details: error.message });
+  }
+});
+
+// Download content as Word file
+// Inside content.js, within the downloadContent route
+router.get('/download/:contentId', ensureAuthenticated, async (req, res) => {
+  try {
+    const { contentId } = req.params;
+    const userId = req.user._id;
+
+    if (!contentId || contentId === 'undefined') {
+      return res.status(400).json({ error: 'Invalid content ID' });
+    }
+
+    if (!mongoose.isValidObjectId(contentId)) {
+      return res.status(400).json({ error: 'Invalid content ID format' });
+    }
+
+    const content = await Content.findById(contentId)
+      .populate('businessId', 'companyName')
+      .populate('userId', 'email name')
+      .exec();
+
+    if (!content) {
+      return res.status(404).json({ error: 'Content not found' });
+    }
+
+    const user = await User.findById(userId).populate('businesses').exec();
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const contentBusinessId = content.businessId?._id?.toString?.() || content.businessId?.toString();
+    const hasAccess =
+      content.userId.toString() === userId.toString() ||
+      user.businesses.some((b) => b._id.toString() === contentBusinessId);
+
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'You do not have access to this content' });
+    }
+
+    // Array to hold all paragraphs for a single section
+    const documentChildren = [];
+
+    // Helper function to add a paragraph with spacing
+    const addParagraph = (text, options = {}) => {
+      return new Paragraph({
+        text: text || '',
+        heading: options.heading,
+        bullet: options.bullet,
+        spacing: { after: options.spacingAfter || 200 },
+        children: options.children || [],
+      });
+    };
+
+    // Add content based on type
+    if (content.type === 'Article') {
+      // Add Title (H1)
+      documentChildren.push(
+        addParagraph(content.data.title || 'Untitled', { heading: HeadingLevel.HEADING_1, spacingAfter: 400 })
+      );
+
+      // Add Meta Description
+      if (content.data.metaDescription) {
+        documentChildren.push(
+          addParagraph('Meta Description', { heading: HeadingLevel.HEADING_2 }),
+          addParagraph(content.data.metaDescription)
+        );
+      }
+
+      // Add Introduction
+      if (content.data.introduction) {
+        documentChildren.push(
+          addParagraph('Introduction', { heading: HeadingLevel.HEADING_2 }),
+          addParagraph(content.data.introduction)
+        );
+      }
+
+      // Add Sections
+      if (content.data.sections && content.data.sections.length > 0) {
+        content.data.sections.forEach((section) => {
+          documentChildren.push(
+            addParagraph(section.heading, { heading: HeadingLevel.HEADING_2 })
+          );
+
+          section.subheadings.forEach((subheading, subIndex) => {
+            documentChildren.push(
+              addParagraph(subheading, { heading: HeadingLevel.HEADING_3 }),
+              addParagraph(section.content[subIndex])
+            );
+          });
+        });
+      }
+
+      // Add Key Takeaways
+      if (content.data.keyTakeaways && content.data.keyTakeaways.length > 0) {
+        documentChildren.push(
+          addParagraph('Key Takeaways', { heading: HeadingLevel.HEADING_2 })
+        );
+
+        content.data.keyTakeaways.forEach((takeaway) => {
+          documentChildren.push(
+            addParagraph(takeaway, { bullet: { level: 0 }, spacingAfter: 100 })
+          );
+        });
+      }
+
+      // Add FAQs
+      if (content.data.faqs && content.data.faqs.length > 0) {
+        documentChildren.push(
+          addParagraph('FAQs', { heading: HeadingLevel.HEADING_2 })
+        );
+
+        content.data.faqs.forEach((faq) => {
+          documentChildren.push(
+            addParagraph(faq.question, { heading: HeadingLevel.HEADING_3 }),
+            addParagraph(faq.answer)
+          );
+        });
+      }
+
+      // Add Conclusion
+      if (content.data.conclusion) {
+        documentChildren.push(
+          addParagraph('Conclusion', { heading: HeadingLevel.HEADING_2 }),
+          addParagraph(content.data.conclusion)
+        );
+      }
+    } else if (content.type === 'SocialMedia') {
+      // Add Caption (H1)
+      documentChildren.push(
+        addParagraph(content.data.caption || 'Untitled', { heading: HeadingLevel.HEADING_1, spacingAfter: 400 })
+      );
+
+      // Add Hashtags
+      if (content.data.hashtags && content.data.hashtags.length > 0) {
+        documentChildren.push(
+          addParagraph('Hashtags', { heading: HeadingLevel.HEADING_2 }),
+          addParagraph(content.data.hashtags.join(' '))
+        );
+      }
+
+      // Add Main Content
+      if (content.data.mainContent) {
+        documentChildren.push(
+          addParagraph('Main Content', { heading: HeadingLevel.HEADING_2 }),
+          addParagraph(content.data.mainContent)
+        );
+      }
+
+      // Add Call to Action
+      if (content.data.cta) {
+        documentChildren.push(
+          addParagraph('Call to Action', { heading: HeadingLevel.HEADING_2 }),
+          addParagraph(content.data.cta)
+        );
+      }
+
+      // Add Text on Poster
+      if (content.data.posterText) {
+        documentChildren.push(
+          addParagraph('Text on Poster', { heading: HeadingLevel.HEADING_2 }),
+          addParagraph(content.data.posterText)
+        );
+      }
+
+      // Add Video Concept
+      if (content.data.videoConcept) {
+        documentChildren.push(
+          addParagraph('Video Concept', { heading: HeadingLevel.HEADING_2 }),
+          addParagraph(content.data.videoConcept)
+        );
+      }
+
+      // Add Video Script
+      if (content.data.script && content.data.script.length > 0) {
+        documentChildren.push(
+          addParagraph('Video Script', { heading: HeadingLevel.HEADING_2 })
+        );
+
+        content.data.script.forEach((scene) => {
+          documentChildren.push(
+            addParagraph(scene.timestamp, { heading: HeadingLevel.HEADING_3 }),
+            addParagraph(scene.sceneDescription, { spacingAfter: 100 }),
+            addParagraph(`Assets: ${scene.assetsToUse}`, { spacingAfter: 100 }),
+            addParagraph(`Animation: ${scene.animationStyle}`)
+          );
+        });
+      }
+    }
+
+    // Create the document with a single section containing all children
+    const doc = new Document({
+      sections: [
+        {
+          properties: {},
+          children: documentChildren,
+        },
+      ],
+    });
+
+    // Generate the Word document
+    const buffer = await Packer.toBuffer(doc);
+    res.setHeader('Content-Disposition', `attachment; filename=Content_${contentId}.docx`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.send(buffer);
+  } catch (error) {
+    console.error('Error in GET /api/content/download/:contentId:', error);
+    res.status(500).json({ error: 'Failed to download content', details: error.message });
+  }
+});
+
+// Update content (e.g., status, scheduled date, data)
 router.put('/:contentId', ensureAuthenticated, ensureBusinessRole('Editor'), async (req, res) => {
   const { contentId } = req.params;
   const userId = req.user._id;
-  const { status, scheduledDate } = req.body;
+  const { status, scheduledDate, data } = req.body;
 
-  // Validate status if provided
   if (status && !['Draft', 'Published', 'Scheduled', 'Archived'].includes(status)) {
     return res.status(400).json({ error: 'Invalid status' });
   }
 
   try {
-    // Fetch the content
     const content = await Content.findById(contentId);
     if (!content) {
       return res.status(404).json({ error: 'Content not found' });
     }
 
-    // Check if the user has access to the content
     const user = await User.findById(userId).populate('businesses');
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
@@ -347,12 +570,14 @@ router.put('/:contentId', ensureAuthenticated, ensureBusinessRole('Editor'), asy
       return res.status(403).json({ error: 'You do not have access to this content' });
     }
 
-    // Update the content
     if (status) {
-      content.status = status; // e.g., "Draft", "Scheduled", "Published", "Archived"
+      content.status = status;
     }
     if (scheduledDate) {
       content.scheduledDate = new Date(scheduledDate);
+    }
+    if (data) {
+      content.data = { ...content.data, ...data }; // Merge updated data
     }
 
     await content.save();
@@ -368,13 +593,11 @@ router.delete('/:contentId', ensureAuthenticated, ensureBusinessRole('Editor'), 
   const userId = req.user._id;
 
   try {
-    // Fetch the content
     const content = await Content.findById(contentId);
     if (!content) {
       return res.status(404).json({ error: 'Content not found' });
     }
 
-    // Check if the user has access to the content
     const user = await User.findById(userId).populate('businesses');
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
@@ -386,21 +609,16 @@ router.delete('/:contentId', ensureAuthenticated, ensureBusinessRole('Editor'), 
       return res.status(403).json({ error: 'You do not have access to this content' });
     }
 
-    // If the content belongs to a business, the ensureBusinessRole middleware already checked the user's role
-
-    // Remove the content from the business's contentHistory if applicable
     if (content.businessId) {
       await Business.findByIdAndUpdate(content.businessId, {
         $pull: { contentHistory: contentId },
       });
     }
 
-    // Remove the content from the user's personalContent
     await User.findByIdAndUpdate(userId, {
       $pull: { personalContent: contentId },
     });
 
-    // Delete the content
     await Content.deleteOne({ _id: contentId });
 
     res.json({ message: 'Content deleted successfully' });
@@ -420,13 +638,11 @@ router.post('/:contentId/comment', ensureAuthenticated, async (req, res) => {
   }
 
   try {
-    // Fetch the content
     const content = await Content.findById(contentId);
     if (!content) {
       return res.status(404).json({ error: 'Content not found' });
     }
 
-    // Check if the user has access to the content
     const user = await User.findById(userId).populate('businesses');
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
@@ -438,7 +654,6 @@ router.post('/:contentId/comment', ensureAuthenticated, async (req, res) => {
       return res.status(403).json({ error: 'You do not have access to this content' });
     }
 
-    // If the content belongs to a business, check the user's role (any role can comment)
     let business = null;
     if (content.businessId) {
       business = await Business.findById(content.businessId);
@@ -453,7 +668,6 @@ router.post('/:contentId/comment', ensureAuthenticated, async (req, res) => {
       }
     }
 
-    // Create the comment
     const comment = new Comment({
       contentId,
       userId,
@@ -461,10 +675,8 @@ router.post('/:contentId/comment', ensureAuthenticated, async (req, res) => {
     });
     await comment.save();
 
-    // Populate the user details for the response
     const populatedComment = await Comment.findById(comment._id).populate('userId', 'email name');
 
-    // Send email notifications to business members (if applicable)
     if (business) {
       const membersToNotify = business.members.filter(m => m.user.toString() !== userId.toString());
       const ownerId = business.owner.toString();
@@ -500,13 +712,11 @@ router.get('/:contentId/comments', ensureAuthenticated, async (req, res) => {
   const userId = req.user._id;
 
   try {
-    // Fetch the content
     const content = await Content.findById(contentId);
     if (!content) {
       return res.status(404).json({ error: 'Content not found' });
     }
 
-    // Check if the user has access to the content
     const user = await User.findById(userId).populate('businesses');
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
@@ -518,7 +728,6 @@ router.get('/:contentId/comments', ensureAuthenticated, async (req, res) => {
       return res.status(403).json({ error: 'You do not have access to this content' });
     }
 
-    // If the content belongs to a business, check the user's role (any role can view comments)
     if (content.businessId) {
       const business = await Business.findById(content.businessId);
       if (!business) {
@@ -532,16 +741,15 @@ router.get('/:contentId/comments', ensureAuthenticated, async (req, res) => {
       }
     }
 
-    // Fetch comments with pagination
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
     const comments = await Comment.find({ contentId })
-      .sort({ createdAt: -1 }) // Sort by creation date, newest first
+      .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
-      .populate('userId', 'email name'); // Populate user details
+      .populate('userId', 'email name');
 
     const totalComments = await Comment.countDocuments({ contentId });
 
