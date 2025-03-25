@@ -6,8 +6,12 @@ const { ensureAuthenticated, ensureBusinessRole } = require('../middleware/auth'
 const mongoose = require("mongoose");
 const axios = require('axios');
 const { sendEmail } = require('../utils/email');
+const NodeCache = require('node-cache');
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:8080';
+
+// Initialize in-memory cache with a TTL of 1 hour (3600 seconds)
+const cache = new NodeCache({ stdTTL: 3600 });
 
 // Initialize Perplexity API
 const perplexityApi = axios.create({
@@ -30,36 +34,12 @@ router.get('/extract-branding', ensureAuthenticated, async (req, res) => {
   try {
     console.log('Processing website:', websiteURL);
 
-    // Check if the business already exists for this user
-    let business = await Business.findOne({ companyWebsite: websiteURL, owner: req.user._id });
-    if (business) {
-      req.session.businessId = business._id;
-      return res.json({
-        companyName: business.companyName,
-        description: business.description,
-        services: business.services,
-        targetAudience: business.targetAudience || 'Describe Your Target Audience',
-        focusService: business.focusService || 'Describe what service you want to focus on',
-        websiteURL,
-        isRegistered: true,
-      });
-    }
-
     // Check in-memory cache
     if (cache.has(websiteURL)) {
       const extractedBranding = cache.get(websiteURL);
-      business = new Business({
-        ...extractedBranding,
-        owner: req.user._id,
-        members: [{ user: req.user._id, role: 'Admin' }],
-      });
-      await business.save();
-      req.session.businessId = business._id;
-      await User.findByIdAndUpdate(req.user._id, { $push: { businesses: business._id } });
-
       return res.json({
         ...extractedBranding,
-        isRegistered: true,
+        isRegistered: false,
       });
     }
 
@@ -67,64 +47,103 @@ router.get('/extract-branding', ensureAuthenticated, async (req, res) => {
     console.log('Fetching data from Perplexity for:', websiteURL);
 
     const prompt = `
-      Analyze the website at ${websiteURL} and provide:
-      1. Company Name
-      2. Description (50-100 words)
-      3. Services (comma-separated)
-      Use placeholders like "Unknown Company" if data is unavailable.
+      Analyze the website at ${websiteURL} and extract the following business details. If a detail is not available, use "N/A". Respond in a structured JSON format without markdown code fences:
+
+      {
+        "companyName": "Name of the company",
+        "description": "A brief description of the company (50-100 words)",
+        "services": "A comma-separated list of services offered by the company",
+        "targetAudience": "The primary target audience of the company (e.g., e-commerce businesses, young professionals)",
+        "demographic": "The demographic profile of the target audience (e.g., 25-34 years, urban professionals)",
+        "address": "The physical address of the company",
+        "email": "The contact email address of the company",
+        "phoneNumber": "The contact phone number of the company",
+        "brandTone": "The brand tone or voice of the company (e.g., professional, casual, friendly)",
+        "hasWebsite": "Whether the company has a website (true/false)",
+        "companyWebsite": "The URL of the company's website"
+      }
     `;
 
     const response = await perplexityApi.post('/chat/completions', {
-      model: 'mistral-7b-instruct',
+      model: 'sonar-pro',
       messages: [
-        { role: 'system', content: 'Extract branding info concisely.' },
+        { role: 'system', content: 'Extract branding info from a website and respond in JSON format. Do not use markdown code fences.' },
         { role: 'user', content: prompt },
       ],
-      max_tokens: 150,
+      max_tokens: 250,
       temperature: 0.5,
     });
 
     const perplexityResponse = response.data.choices[0].message.content.trim();
     console.log('Perplexity Response:', perplexityResponse);
 
-    let companyName = 'Unknown Company';
-    let description = 'No description available.';
-    let services = 'No services found.';
+    // Remove markdown code fences if present
+    const jsonString = perplexityResponse.replace(/^``````$/, '');
 
-    const lines = perplexityResponse.split('\n');
-    lines.forEach(line => {
-      if (line.startsWith('1. Company Name')) {
-        companyName = line.replace('1. Company Name', '').replace(':', '').trim() || 'Unknown Company';
-      } else if (line.startsWith('2. Description')) {
-        description = line.replace('2. Description', '').replace(':', '').trim() || 'No description available.';
-      } else if (line.startsWith('3. Services')) {
-        services = line.replace('3. Services', '').replace(':', '').trim() || 'No services found.';
-      }
-    });
+    let extractedData;
+    try {
+      extractedData = JSON.parse(jsonString);
+    } catch (error) {
+      console.error('Failed to parse JSON response:', error);
+      extractedData = {
+        companyName: 'Unknown Company',
+        description: 'No description available.',
+        services: 'No services found.',
+        targetAudience: 'N/A',
+        demographic: 'N/A',
+        address: 'N/A',
+        email: 'N/A',
+        phoneNumber: 'N/A',
+        brandTone: 'N/A',
+        hasWebsite: true,
+        companyWebsite: websiteURL,
+      };
+    }
 
-    // Save the extracted branding as a new Business
-    business = new Business({
+    const {
       companyName,
       description,
       services,
-      companyWebsite: websiteURL,
-      owner: req.user._id,
-      members: [{ user: req.user._id, role: 'Admin' }],
-    });
-    await business.save();
-    req.session.businessId = business._id;
-    await User.findByIdAndUpdate(req.user._id, { $push: { businesses: business._id } });
+      targetAudience,
+      demographic,
+      address,
+      email,
+      phoneNumber,
+      brandTone,
+      hasWebsite,
+      companyWebsite,
+    } = extractedData;
 
-    cache.set(websiteURL, { companyName, description, services, websiteURL });
+    // Cache the extracted data
+    cache.set(websiteURL, {
+      companyName,
+      description,
+      services,
+      targetAudience,
+      demographic,
+      address,
+      email,
+      phoneNumber,
+      brandTone,
+      hasWebsite,
+      companyWebsite,
+      websiteURL,
+    });
 
     return res.json({
       companyName,
       description,
       services,
-      targetAudience: 'Describe Your Target Audience',
-      focusService: 'Describe what service you want to focus on',
+      targetAudience,
+      demographic,
+      address,
+      email,
+      phoneNumber,
+      brandTone,
+      hasWebsite,
+      companyWebsite,
       websiteURL,
-      isRegistered: true,
+      isRegistered: false,
     });
   } catch (error) {
     console.error('Error with Perplexity API:', error.response?.data || error.message);
@@ -133,20 +152,16 @@ router.get('/extract-branding', ensureAuthenticated, async (req, res) => {
       companyName: urlFallback.hostname.replace('www.', '').split('.')[0] || 'Unknown Company',
       description: 'No description available due to extraction error.',
       services: 'No services found.',
-      targetAudience: 'Describe Your Target Audience',
-      focusService: 'Describe what service you want to focus on',
+      targetAudience: 'N/A',
+      demographic: 'N/A',
+      address: 'N/A',
+      email: 'N/A',
+      phoneNumber: 'N/A',
+      brandTone: 'N/A',
+      hasWebsite: true,
+      companyWebsite: websiteURL,
       websiteURL,
     };
-
-    // Save fallback data as a new Business
-    const business = new Business({
-      ...fallbackData,
-      owner: req.user._id,
-      members: [{ user: req.user._id, role: 'Admin' }],
-    });
-    await business.save();
-    req.session.businessId = business._id;
-    await User.findByIdAndUpdate(req.user._id, { $push: { businesses: business._id } });
 
     return res.status(500).json({
       ...fallbackData,
@@ -182,7 +197,6 @@ router.post('/', ensureAuthenticated, async (req, res) => {
     email,
     phoneNumber,
     brandTone,
-    socialMediaType,
     hasWebsite,
     companyWebsite,
   } = req.body;
@@ -202,7 +216,6 @@ router.post('/', ensureAuthenticated, async (req, res) => {
       email,
       phoneNumber,
       brandTone,
-      socialMediaType,
       hasWebsite,
       companyWebsite,
       owner: req.user._id,
@@ -227,6 +240,47 @@ router.post('/', ensureAuthenticated, async (req, res) => {
   }
 });
 
+// Display business
+router.get('/:businessId', ensureAuthenticated, async (req, res) => {
+  const { businessId } = req.params;
+
+  try {
+    if (!mongoose.Types.ObjectId.isValid(businessId)) {
+      return res.status(400).json({ error: 'Invalid business ID' });
+    }
+
+    const rawBusiness = await Business.findById(businessId);
+    console.log("Raw business document:", rawBusiness);
+
+    const business = await Business.findById(businessId)
+      .populate('owner', 'email name')
+      .populate('members.user', 'email name');
+    if (!business) {
+      return res.status(404).json({ error: 'Business not found' });
+    }
+
+    console.log("Business owner:", business.owner);
+    console.log("Business members:", business.members);
+    console.log("Request user ID:", req.user._id.toString());
+
+    const isOwner = business.owner._id.toString() === req.user._id.toString();
+    const isMember = business.members.some(
+      (member) => member.user._id.toString() === req.user._id.toString()
+    );
+    console.log("isOwner:", isOwner);
+    console.log("isMember:", isMember);
+
+    if (!isOwner && !isMember) {
+      return res.status(403).json({ error: 'Not authorized to view this business' });
+    }
+
+    res.json({ business, currentUserId: req.user._id.toString() });
+  } catch (error) {
+    console.error('Error fetching business:', error);
+    res.status(500).json({ error: 'Failed to fetch business', details: error.message });
+  }
+});
+
 // Update a business
 router.put('/:businessId', ensureAuthenticated, ensureBusinessRole('Admin'), async (req, res) => {
   const { businessId } = req.params;
@@ -240,7 +294,6 @@ router.put('/:businessId', ensureAuthenticated, ensureBusinessRole('Admin'), asy
     email,
     phoneNumber,
     brandTone,
-    socialMediaType,
     hasWebsite,
     companyWebsite,
   } = req.body;
@@ -266,7 +319,6 @@ router.put('/:businessId', ensureAuthenticated, ensureBusinessRole('Admin'), asy
     business.email = email || business.email;
     business.phoneNumber = phoneNumber || business.phoneNumber;
     business.brandTone = brandTone || business.brandTone;
-    business.socialMediaType = socialMediaType || business.socialMediaType;
     business.hasWebsite = hasWebsite || business.hasWebsite;
     business.companyWebsite = companyWebsite || business.companyWebsite;
 

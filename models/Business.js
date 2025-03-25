@@ -46,11 +46,6 @@ const BusinessSchema = new mongoose.Schema({
     default: 'professional',
     trim: true,
   },
-  socialMediaType: {
-    type: String,
-    default: '',
-    trim: true,
-  },
   hasWebsite: {
     type: String,
     default: 'no',

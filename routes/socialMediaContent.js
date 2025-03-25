@@ -37,7 +37,6 @@ router.get("/branding-social", async (req, res) => {
 });
 
 
-
 router.get('/content-details', ensureAuthenticated, async (req, res) => {
   const businessId = req.session.businessId;
 
@@ -72,22 +71,19 @@ router.get('/content-details', ensureAuthenticated, async (req, res) => {
       adDetails: business.adDetails || '',
     };
 
-    // Ensure focusService is set
-    if (!businessDetails.focusService) {
-      console.warn('focusService not set, defaulting to first service.');
-      businessDetails.focusService = businessDetails.services?.split(',').map(s => s.trim())[0] || 'business solutions';
-      business.focusService = businessDetails.focusService;
-      await business.save();
-    }
+    const response = { business: businessDetails };
 
-    const socialMediaSuggestions = await suggestSocialMediaDetails(businessDetails);
-
-    res.json({
-      business: businessDetails,
-      socialMediaSuggestions: {
+    // Only generate suggestions if focusService is explicitly set
+    if (businessDetails.focusService) {
+      const socialMediaSuggestions = await suggestSocialMediaDetails(businessDetails);
+      response.socialMediaSuggestions = {
         suggestedKeyMessages: socialMediaSuggestions.suggestedKeyMessages,
         suggestedAdDetails: socialMediaSuggestions.suggestedAdDetails,
-      },
+      };
+    }
+
+    res.json({
+      ...response,
       error: null,
     });
   } catch (error) {
@@ -96,10 +92,55 @@ router.get('/content-details', ensureAuthenticated, async (req, res) => {
   }
 });
 
+router.post('/fetch-suggestions', ensureAuthenticated, async (req, res) => {
+  const { businessId, focusService } = req.body;
+
+  if (!businessId || !focusService) {
+    return res.status(400).json({ error: 'Business ID and focus service are required' });
+  }
+
+  try {
+    const business = await Business.findOne({ _id: businessId, owner: req.user._id });
+    if (!business) {
+      return res.status(404).json({ error: 'Business not found' });
+    }
+
+    // Update the business with the new focusService
+    business.focusService = focusService;
+    await business.save();
+
+    const businessDetails = {
+      companyName: business.companyName,
+      description: business.description,
+      services: business.services,
+      focusService: focusService,
+      targetAudience: business.targetAudience,
+      brandTone: business.brandTone,
+      socialMediaType: business.socialMediaType || 'Facebook Post',
+      purpose: business.purpose || 'Promote',
+      topic: business.topic || '',
+      contentPillar: business.contentPillar || 'Educate',
+      keyMessage: business.keyMessage || '',
+      adDetails: business.adDetails || '',
+    };
+
+    const socialMediaSuggestions = await suggestSocialMediaDetails(businessDetails);
+
+    res.json({
+      socialMediaSuggestions: {
+        suggestedKeyMessages: socialMediaSuggestions.suggestedKeyMessages,
+        suggestedAdDetails: socialMediaSuggestions.suggestedAdDetails,
+      },
+      error: null,
+    });
+  } catch (error) {
+    console.error('Error fetching suggestions:', error);
+    res.status(500).json({ error: 'Failed to fetch suggestions' });
+  }
+});
 
 
 
-// Handle business selection or new details
 router.post('/generate-content-social', ensureAuthenticated, ensureBusinessRole('Editor'), async (req, res) => {
   const {
     companyName,
@@ -114,16 +155,15 @@ router.post('/generate-content-social', ensureAuthenticated, ensureBusinessRole(
     contentPillar,
     keyMessage,
     adDetails,
+    specificInstructions, // Add specificInstructions
   } = req.body;
 
   try {
-    // Fetch the user
     const user = await User.findById(req.user._id);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Check free trial or subscription (bypass in development)
     if (process.env.NODE_ENV !== 'development' && user.subscription === 'None' && user.freeTrialUsed) {
       return res.status(403).json({
         error: 'You have already used your free trial. Please subscribe to continue.',
@@ -131,22 +171,19 @@ router.post('/generate-content-social', ensureAuthenticated, ensureBusinessRole(
       });
     }
 
-    // Check social media generation limits (bypass in development and for EditEdge users)
     if (process.env.NODE_ENV !== 'development' && !user.isEditEdgeUser) {
-      // Reset count if the weekly cycle has ended
       const now = new Date();
       if (!user.contentGenerationResetDate || now > user.contentGenerationResetDate) {
         user.articleGenerationCount = 0;
         user.socialMediaGenerationCount = 0;
-        user.contentGenerationResetDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // Reset weekly
+        user.contentGenerationResetDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
         await user.save();
       }
 
-      // Define limits based on subscription plan
       const socialMediaLimits = {
-        Basic: 3, // 3 social media posts per week
-        Pro: 5,  // 5 social media posts per week
-        Enterprise: 15, // Temporary limit for Enterprise (can be customized per agreement)
+        Basic: 3,
+        Pro: 5,
+        Enterprise: 15,
       };
 
       const userSocialMediaLimit = socialMediaLimits[user.subscription] || 0;
@@ -158,7 +195,6 @@ router.post('/generate-content-social', ensureAuthenticated, ensureBusinessRole(
       }
     }
 
-    // Fetch the business using req.session.businessId
     const businessId = req.session.businessId;
     if (!businessId) {
       return res.status(400).json({
@@ -175,7 +211,6 @@ router.post('/generate-content-social', ensureAuthenticated, ensureBusinessRole(
       });
     }
 
-    // Use the existing business data instead of overwriting it
     const businessData = {
       companyName: business.companyName,
       description: business.description,
@@ -189,11 +224,11 @@ router.post('/generate-content-social', ensureAuthenticated, ensureBusinessRole(
       contentPillar: contentPillar || 'Educate',
       keyMessage: keyMessage || 'Highlight our services',
       adDetails: adDetails || 'No additional details',
+      specificInstructions: specificInstructions || 'No specific instructions provided.', // Add specificInstructions
     };
 
     console.log('Using business data for content generation:', businessData);
 
-    // Generate the social media content
     await generateSocialMediaContent(req, res, businessData, business, user);
   } catch (error) {
     console.error('Error in generate-content-social:', error);
@@ -215,6 +250,7 @@ async function generateSocialMediaContent(req, res, data, business, user) {
     contentPillar,
     keyMessage,
     adDetails,
+    specificInstructions, // Add specificInstructions
   } = data;
 
   if (!data || Object.keys(data).length === 0) {
@@ -229,7 +265,6 @@ async function generateSocialMediaContent(req, res, data, business, user) {
   console.log('✅ Generating content for:', socialMediaType);
   console.log('Business data used:', data);
 
-  // Platform-specific settings
   let platform = socialMediaType.split(' ')[0];
   let captionLimit, hashtagCount;
   switch (platform) {
@@ -254,7 +289,6 @@ async function generateSocialMediaContent(req, res, data, business, user) {
       hashtagCount = '1-2';
   }
 
-  // Content pillar description
   let pillarDescription = '';
   switch (contentPillar) {
     case 'Educate':
@@ -273,7 +307,6 @@ async function generateSocialMediaContent(req, res, data, business, user) {
       pillarDescription = 'Generate a post related to the topic with a general informative or promotional approach.';
   }
 
-  // Platform-specific instructions
   let platformInstructions = '';
   switch (platform) {
     case 'Facebook':
@@ -333,6 +366,11 @@ Generate a Social Media ${socialMediaType} for ${companyName}.
   - Target Audience: ${targetAudience || 'General audience'}
   - Purpose: ${purpose || 'Promote'}
   - Details: ${adDetails || 'No additional details'}
+- Specific AI Instructions: ${specificInstructions || 'No specific instructions provided.'}
+
+**Specific AI Instructions:**
+- Follow the specific instructions provided: "${specificInstructions || 'No specific instructions provided.'}"
+- If specific instructions are provided, ensure the content structure adheres to them (e.g., "the content must start with a question, followed by a problem of the focus service, then how we solve that problem").
 
 **FORMAT EXACTLY LIKE THIS:**
 `;
@@ -380,7 +418,6 @@ Generate a Social Media ${socialMediaType} for ${companyName}.
   const generatedContent = aiResponse.choices[0].message.content.trim();
   console.log('✅ AI Raw Response:\n', generatedContent);
 
-  // Split the response into lines for more robust parsing
   const lines = generatedContent.split('\n').filter((line) => line.trim());
   let extractedContent = {
     companyName,
@@ -447,15 +484,12 @@ Generate a Social Media ${socialMediaType} for ${companyName}.
     }
   });
 
-  // Convert hashtags string to array
   extractedContent.hashtags = extractedContent.hashtags
     ? extractedContent.hashtags.split(' ').filter((tag) => tag.trim())
     : ['#DefaultHashtag'];
 
-  // Add placeholder image URL
   extractedContent.imageUrl = 'https://via.placeholder.com/600x400?text=Social+Media+Post+Image';
 
-  // Finalize extracted content
   extractedContent = {
     ...extractedContent,
     ...(socialMediaType.includes('Reel') || socialMediaType.includes('Story') || socialMediaType === 'Tiktok Video'
@@ -472,7 +506,6 @@ Generate a Social Media ${socialMediaType} for ${companyName}.
       : {}),
   };
 
-  // Fallback values if fields are empty
   extractedContent.caption = extractedContent.caption || 'Contact us for amazing content! 🌟';
   extractedContent.cta = extractedContent.cta || 'Learn more!';
   extractedContent.mainContent = extractedContent.mainContent || 'No content provided.';
@@ -480,7 +513,6 @@ Generate a Social Media ${socialMediaType} for ${companyName}.
 
   console.log('✅ Extracted Content:', extractedContent);
 
-  // Save the generated content to the Content collection
   const content = new Content({
     type: 'SocialMedia',
     businessId: business._id,
@@ -490,23 +522,19 @@ Generate a Social Media ${socialMediaType} for ${companyName}.
   });
   await content.save();
 
-  // Increment social media generation count (bypass in development and for EditEdge users)
   if (process.env.NODE_ENV !== 'development' && !user.isEditEdgeUser) {
     user.socialMediaGenerationCount += 1;
     await user.save();
   }
 
-  // Update the business's contentHistory
   await Business.findByIdAndUpdate(business._id, {
     $push: { contentHistory: content._id },
   });
 
-  // Update user's personalContent array
   await User.findByIdAndUpdate(req.user._id, {
     $push: { personalContent: content._id },
   });
 
-  // Mark free trial as used if applicable (bypass in development)
   if (process.env.NODE_ENV !== 'development' && user.subscription === 'None' && !user.freeTrialUsed) {
     await User.findByIdAndUpdate(req.user._id, { freeTrialUsed: true });
   }
@@ -514,11 +542,10 @@ Generate a Social Media ${socialMediaType} for ${companyName}.
   req.session.generatedContent = extractedContent;
   console.log('✅ Session Content Stored:', req.session.generatedContent);
 
-  // Check if the user has 1 generation left after this generation
   const socialMediaLimits = {
-    Basic: 3, // 3 social media posts per week
-    Pro: 5,  // 5 social media posts per week
-    Enterprise: 15, // Temporary limit for Enterprise (can be customized per agreement)
+    Basic: 3,
+    Pro: 5,
+    Enterprise: 15,
   };
   const userSocialMediaLimit = socialMediaLimits[user.subscription] || 0;
   const remainingSocialMedia = userSocialMediaLimit - user.socialMediaGenerationCount;

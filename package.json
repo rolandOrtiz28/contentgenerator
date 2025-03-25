@@ -25,6 +25,7 @@
     "helmet": "^8.0.0",
     "jsonrepair": "^3.12.0",
     "mongoose": "^8.11.0",
+    "node-cache": "^5.1.2",
     "nodemailer": "^6.10.0",
     "nodemon": "^3.1.9",
     "openai": "^4.85.0",

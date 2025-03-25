@@ -1,5 +1,7 @@
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');
+const ObjectId = mongoose.Types.ObjectId;
 const Content = require('../models/Content');
 const Business = require('../models/Business');
 const User = require('../models/User');
@@ -229,6 +231,88 @@ router.get('/:businessId', ensureAuthenticated, async (req, res) => {
       .sort({ createdAt: -1 });
     res.json({ content });
   } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch content', details: error.message });
+  }
+});
+
+// Get content by ID
+router.get('/:contentId', ensureAuthenticated, async (req, res) => {
+  try {
+    const { contentId } = req.params;
+    const userId = req.user._id;
+
+    console.log("Fetching content with ID:", contentId, "for user ID:", userId);
+
+    // Validate contentId
+    if (!contentId || contentId === 'undefined') {
+      console.log("Invalid content ID provided");
+      return res.status(400).json({ error: 'Invalid content ID' });
+    }
+
+    // Ensure contentId is a valid ObjectId
+    if (!mongoose.isValidObjectId(contentId)) {
+      console.log("Invalid ObjectId format for contentId:", contentId);
+      return res.status(400).json({ error: 'Invalid content ID format' });
+    }
+
+    // Cast contentId to ObjectId
+    const objectId = new ObjectId(contentId);
+    console.log("Querying Content collection with ObjectId:", objectId.toString());
+
+    // Log the database and collection being queried
+    console.log("Database:", mongoose.connection.db.databaseName);
+    console.log("Collection:", Content.collection.collectionName);
+
+    // Fetch the content
+    const content = await Content.findById(objectId)
+      .populate('businessId', 'companyName')
+      .populate('userId', 'email name')
+      .exec();
+    if (!content) {
+      console.log("Content not found in database for ID:", contentId);
+      return res.status(404).json({ error: 'Content not found' });
+    }
+    console.log("Content found:", content._id.toString(), "Type:", content.type);
+
+    // Check if the user has access to the content
+    const user = await User.findById(userId).populate('businesses').exec();
+    if (!user) {
+      console.log("User not found for ID:", userId);
+      return res.status(404).json({ error: 'User not found' });
+    }
+    console.log("User found:", user._id.toString(), "Businesses:", user.businesses.map(b => b._id.toString()));
+
+    const hasAccess = content.userId.toString() === userId.toString() || 
+      (content.businessId && user.businesses.some(b => b._id.toString() === content.businessId.toString()));
+    if (!hasAccess) {
+      console.log("User does not have access to content. Content userId:", content.userId.toString(), "Content businessId:", content.businessId?.toString());
+      return res.status(403).json({ error: 'You do not have access to this content' });
+    }
+
+    // If the content belongs to a business, check the user's role (any role can view)
+    if (content.businessId) {
+      const business = await Business.findById(content.businessId).exec();
+      if (!business) {
+        console.log("Business not found for ID:", content.businessId.toString());
+        // Allow access if the user is the creator, even if the business is missing
+        if (content.userId.toString() !== userId.toString()) {
+          return res.status(403).json({ error: 'Business not found and you are not the creator of this content' });
+        }
+        console.log("Business not found, but user is the creator, allowing access");
+      } else {
+        console.log("Business found:", business._id.toString(), "Owner:", business.owner.toString(), "Members:", business.members.map(m => m.user.toString()));
+        const isOwner = business.owner.toString() === userId.toString();
+        const member = business.members.find(m => m.user.toString() === userId.toString());
+        if (!isOwner && !member) {
+          console.log("User is neither owner nor member of the business. Owner:", business.owner.toString(), "User ID:", userId.toString());
+          return res.status(403).json({ error: 'You do not have permission to view this content' });
+        }
+      }
+    }
+
+    res.json({ content });
+  } catch (error) {
+    console.error('Error in GET /:contentId route:', error);
     res.status(500).json({ error: 'Failed to fetch content', details: error.message });
   }
 });

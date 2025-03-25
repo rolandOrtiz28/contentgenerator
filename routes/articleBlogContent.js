@@ -65,25 +65,21 @@ router.get('/content-details', ensureAuthenticated, async (req, res) => {
       companyWebsite: business.companyWebsite,
     };
 
-    // Ensure focusService is set
-    if (!businessDetails.focusService) {
-      console.warn('focusService not set, defaulting to first service.');
-      businessDetails.focusService = businessDetails.services?.split(',').map(s => s.trim())[0] || 'business solutions';
-      business.focusService = businessDetails.focusService;
-      await business.save();
+    const response = { business: businessDetails };
+
+    // Only generate suggestions if focusService is explicitly set
+    if (businessDetails.focusService) {
+      const suggestions = await suggestKeywordsWithOpenAI(businessDetails);
+      response.suggestedPrimaryKeywords = suggestions.primaryKeywords;
+      response.suggestedSecondaryKeywords = suggestions.secondaryKeywords;
+      response.suggestedKeyPoints = suggestions.keyPoints;
+      response.suggestedUniqueBusinessGoal = suggestions.uniqueBusinessGoal;
+      response.suggestedSpecificChallenge = suggestions.specificChallenge;
+      response.suggestedPersonalAnecdote = suggestions.personalAnecdote;
     }
 
-    // Get suggestions from OpenAI
-    const suggestions = await suggestKeywordsWithOpenAI(businessDetails);
-
     res.json({
-      business: businessDetails,
-      suggestedPrimaryKeywords: suggestions.primaryKeywords,
-      suggestedSecondaryKeywords: suggestions.secondaryKeywords,
-      suggestedKeyPoints: suggestions.keyPoints,
-      suggestedUniqueBusinessGoal: suggestions.uniqueBusinessGoal,
-      suggestedSpecificChallenge: suggestions.specificChallenge,
-      suggestedPersonalAnecdote: suggestions.personalAnecdote,
+      ...response,
       error: null,
     });
   } catch (error) {
@@ -91,7 +87,6 @@ router.get('/content-details', ensureAuthenticated, async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch business details' });
   }
 });
-// Step 5: Generate the SEO-optimized article
 
 
 // Manual fix for common JSON issues
@@ -136,6 +131,55 @@ function manualFixJson(rawContent) {
   return fixedContent;
 }
 
+
+router.post('/fetch-suggestions', ensureAuthenticated, async (req, res) => {
+  const { businessId, focusService } = req.body;
+
+  if (!businessId || !focusService) {
+    return res.status(400).json({ error: 'Business ID and focus service are required' });
+  }
+
+  try {
+    const business = await Business.findOne({ _id: businessId, owner: req.user._id });
+    if (!business) {
+      return res.status(404).json({ error: 'Business not found' });
+    }
+
+    // Update the business with the new focusService
+    business.focusService = focusService;
+    await business.save();
+
+    const businessDetails = {
+      companyName: business.companyName,
+      description: business.description,
+      services: business.services,
+      focusService: focusService,
+      targetAudience: business.targetAudience,
+      demographic: business.demographic || '',
+      address: business.address || '',
+      email: business.email || '',
+      phoneNumber: business.phoneNumber || '',
+      brandTone: business.brandTone,
+      companyWebsite: business.companyWebsite,
+    };
+
+    const suggestions = await suggestKeywordsWithOpenAI(businessDetails);
+
+    res.json({
+      suggestedPrimaryKeywords: suggestions.primaryKeywords,
+      suggestedSecondaryKeywords: suggestions.secondaryKeywords,
+      suggestedKeyPoints: suggestions.keyPoints,
+      suggestedUniqueBusinessGoal: suggestions.uniqueBusinessGoal,
+      suggestedSpecificChallenge: suggestions.specificChallenge,
+      suggestedPersonalAnecdote: suggestions.personalAnecdote,
+      error: null,
+    });
+  } catch (error) {
+    console.error('Error fetching suggestions:', error);
+    res.status(500).json({ error: 'Failed to fetch suggestions' });
+  }
+});
+
 router.post('/generate-content-article', ensureAuthenticated, ensureBusinessRole('Editor'), async (req, res) => {
   const {
     companyName,
@@ -152,6 +196,7 @@ router.post('/generate-content-article', ensureAuthenticated, ensureBusinessRole
     uniqueBusinessGoal,
     specificChallenge,
     personalAnecdote,
+    specificInstructions, // Add specificInstructions
   } = req.body;
 
   try {
@@ -171,21 +216,19 @@ router.post('/generate-content-article', ensureAuthenticated, ensureBusinessRole
 
     // Check article generation limits (bypass in development and for EditEdge users)
     if (process.env.NODE_ENV !== 'development' && !user.isEditEdgeUser) {
-      // Reset count if the weekly cycle has ended
       const now = new Date();
       if (!user.contentGenerationResetDate || now > user.contentGenerationResetDate) {
         user.articleGenerationCount = 0;
         user.socialMediaGenerationCount = 0;
-        user.contentGenerationResetDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // Reset weekly
+        user.contentGenerationResetDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
         await user.save();
         console.log(`Reset counts for user ${user._id}: articleGenerationCount=${user.articleGenerationCount}, contentGenerationResetDate=${user.contentGenerationResetDate}`);
       }
 
-      // Define limits based on subscription plan
       const articleLimits = {
-        Basic: 2, // 2 articles per week
-        Pro: 3,  // 3 articles per week
-        Enterprise: 10, // Temporary limit for Enterprise (can be customized per agreement)
+        Basic: 2,
+        Pro: 3,
+        Enterprise: 10,
       };
 
       const userArticleLimit = articleLimits[user.subscription] || 0;
@@ -197,7 +240,6 @@ router.post('/generate-content-article', ensureAuthenticated, ensureBusinessRole
       }
     }
 
-    // Fetch the business using req.session.businessId
     let businessId = req.session.businessId;
     if (!businessId) {
       return res.status(400).json({
@@ -214,7 +256,6 @@ router.post('/generate-content-article', ensureAuthenticated, ensureBusinessRole
       });
     }
 
-    // Use the existing business data instead of overwriting it
     const businessData = {
       companyName: business.companyName,
       description: business.description,
@@ -224,7 +265,6 @@ router.post('/generate-content-article', ensureAuthenticated, ensureBusinessRole
       brandTone: business.brandTone || brandTone || 'professional',
     };
 
-    // Construct the content generation prompt using the business data
     const contentPrompt = `
     You are a top-tier SEO content strategist. Generate a highly optimized blog article as a JSON object for the provided business details. All fields must be fully AI-generated based on the input, with no hardcoded fallbacks. The content must be SEO-optimized, engaging, and at least 1200-1500 words long.
 
@@ -243,6 +283,7 @@ router.post('/generate-content-article', ensureAuthenticated, ensureBusinessRole
     - Unique Business Goal: ${uniqueBusinessGoal || 'Increase conversion rates through engaging digital strategies'}
     - Specific Challenge: ${specificChallenge || 'Overcoming low online visibility in competitive markets'}
     - Personal Anecdote: ${personalAnecdote || 'A client saw a 50% sales boost after our digital marketing overhaul'}
+    - Specific AI Instructions: ${specificInstructions || 'No specific instructions provided.'}
 
     **SEO Guidelines:**
     - Use the primary keyword ("${keyword || 'digital marketing for e-commerce'}") 5-7 times naturally across the article, including:
@@ -255,6 +296,10 @@ router.post('/generate-content-article', ensureAuthenticated, ensureBusinessRole
     - Include 3-5 internal links (e.g., /services/[focus-service], /about, /contact).
     - Ensure readability: Use a conversational tone, short sentences, and bullet points where applicable.
     - Add image suggestions with SEO-optimized alt text (e.g., "Digital marketing infographic for e-commerce growth").
+
+    **Specific AI Instructions:**
+    - Follow the specific instructions provided: "${specificInstructions || 'No specific instructions provided.'}"
+    - If specific instructions are provided, ensure the content structure adheres to them (e.g., "the content must start with a question, followed by a problem of the focus service, then how we solve that problem").
 
     **Output Format (JSON):**
     {
@@ -290,11 +335,11 @@ router.post('/generate-content-article', ensureAuthenticated, ensureBusinessRole
     }
 
     **Structure:**
-    1. Introduction: Address the specific challenge with primary keyword early.
+    1. Introduction: Address the specific challenge with primary keyword early, following the specific AI instructions if provided.
     2. Section 1: How [Focus Service] Drives [Target Audience] Success (keyword-rich).
-    2. Section 2: Optimizing [Secondary Keyword] for Growth (e.g., Social Media Marketing).
-    3. Section 3: Real-World Success: Case Study (use personal anecdote).
-    4. Section 4: Tools and Strategies for [Focus Service] (data-driven insights).
+    3. Section 2: Optimizing [Secondary Keyword] for Growth (e.g., Social Media Marketing).
+    4. Section 3: Real-World Success: Case Study (use personal anecdote).
+    5. Section 4: Tools and Strategies for [Focus Service] (data-driven insights).
     6. Conclusion: Reinforce benefits with CTA.
     7. Key Takeaways: Bullet points with keywords.
     8. FAQs: 4 keyword-rich, conversational questions.
@@ -328,7 +373,6 @@ router.post('/generate-content-article', ensureAuthenticated, ensureBusinessRole
     let rawContent = contentResponse.choices[0].message.content.trim();
     console.log('Raw AI Response:', rawContent);
 
-    // Manually fix common JSON issues before jsonrepair
     rawContent = manualFixJson(rawContent);
 
     let generatedContent;
@@ -343,7 +387,6 @@ router.post('/generate-content-article', ensureAuthenticated, ensureBusinessRole
       generatedContent = JSON.parse(repairedJson);
     } catch (error) {
       console.error('JSON Parsing Failed:', error);
-      // Fallback content if JSON parsing fails
       generatedContent = {
         title: "Fallback Article Title",
         metaDescription: "This is a fallback article due to generation issues.",
@@ -370,7 +413,6 @@ router.post('/generate-content-article', ensureAuthenticated, ensureBusinessRole
       };
     }
 
-    // Ensure sections.content is an array
     generatedContent.sections = generatedContent.sections.map(section => {
       if (!Array.isArray(section.content)) {
         section.content = [JSON.stringify(section.content)];
@@ -378,17 +420,14 @@ router.post('/generate-content-article', ensureAuthenticated, ensureBusinessRole
       return section;
     });
 
-    // Ensure schemaMarkup is a string
     if (typeof generatedContent.schemaMarkup !== 'string') {
       generatedContent.schemaMarkup = JSON.stringify(generatedContent.schemaMarkup);
     }
 
-    // Ensure images is an array
     if (!Array.isArray(generatedContent.images)) {
       generatedContent.images = [];
     }
 
-    // Save the generated content to the Content collection
     const content = new Content({
       type: 'Article',
       businessId: business._id,
@@ -398,15 +437,12 @@ router.post('/generate-content-article', ensureAuthenticated, ensureBusinessRole
     });
     await content.save();
 
-    // Increment article generation count (bypass in development and for EditEdge users)
-    console.log(`NODE_ENV: ${process.env.NODE_ENV}, isEditEdgeUser: ${user.isEditEdgeUser}`);
     if (process.env.NODE_ENV !== 'development' && !user.isEditEdgeUser) {
       console.log(`Before increment: articleGenerationCount=${user.articleGenerationCount}`);
       user.articleGenerationCount += 1;
       try {
         await user.save();
         console.log(`After increment: articleGenerationCount=${user.articleGenerationCount}`);
-        // Verify the update by fetching the user again
         const updatedUser = await User.findById(req.user._id);
         console.log(`Verified articleGenerationCount after save: ${updatedUser.articleGenerationCount}`);
       } catch (saveError) {
@@ -417,28 +453,24 @@ router.post('/generate-content-article', ensureAuthenticated, ensureBusinessRole
       console.log('Skipping articleGenerationCount increment due to development mode or EditEdge user');
     }
 
-    // Update the business's contentHistory
     await Business.findByIdAndUpdate(business._id, {
       $push: { contentHistory: content._id },
     });
 
-    // Update user's personalContent array
     await User.findByIdAndUpdate(req.user._id, {
       $push: { personalContent: content._id },
     });
 
-    // Mark free trial as used if applicable (bypass in development)
     if (process.env.NODE_ENV !== 'development' && user.subscription === 'None' && !user.freeTrialUsed) {
       await User.findByIdAndUpdate(req.user._id, { freeTrialUsed: true });
     }
 
     req.session.generatedContent = generatedContent;
 
-    // Check if the user has 1 generation left after this generation
     const articleLimits = {
-      Basic: 2, // 2 articles per week
-      Pro: 3,  // 3 articles per week
-      Enterprise: 10, // Temporary limit for Enterprise (can be customized per agreement)
+      Basic: 2,
+      Pro: 3,
+      Enterprise: 10,
     };
     const userArticleLimit = articleLimits[user.subscription] || 0;
     const remainingArticles = userArticleLimit - user.articleGenerationCount;
@@ -453,6 +485,7 @@ router.post('/generate-content-article', ensureAuthenticated, ensureBusinessRole
     res.status(500).json({ error: 'Error generating content. Please try again.', details: error.message });
   }
 });
+
 
 // Step 6: Save business details prompt
 router.get("/save-details-prompt", (req, res) => {
