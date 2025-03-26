@@ -1,0 +1,8 @@
+deployment:
+  tasks:
+    - echo "🚀 Starting deployment..."
+    - cd $HOME/repositories/contentgenerator
+    - git pull origin main
+    - npm install --production
+    - echo "✅ Dependencies installed"
+    - pm2 start index.js --name contentgenerator || pm2 restart contentgenerator
