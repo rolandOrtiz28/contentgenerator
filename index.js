@@ -33,7 +33,7 @@ const isProduction = process.env.NODE_ENV === "production";
 // Enable CORS
 app.use(cors({
   origin: (origin, callback) => {
-    const allowedOrigins = ["http://localhost:8080", "https://content.editedgemultimedia.com"];
+    const allowedOrigins = ["http://localhost:8080", "https://content.editedgemultimedia.com", "https://app-aagi02dfpgs.canva-apps.com"];
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
