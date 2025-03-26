@@ -75,6 +75,8 @@ const UserSchema = new mongoose.Schema({
   contentGenerationResetDate: {
     type: Date,
   },
+  resetPasswordToken: { type: String },
+  resetPasswordExpires: { type: Date },
   createdAt: {
     type: Date,
     default: Date.now,
@@ -86,7 +88,7 @@ const UserSchema = new mongoose.Schema({
 });
 
 UserSchema.pre('save', async function (next) {
-  if (this.isModified('password')) {
+  if (this.isModified('password') && !this.password.startsWith('$2b$')) {
     this.password = await bcrypt.hash(this.password, 10);
   }
   this.updatedAt = Date.now();

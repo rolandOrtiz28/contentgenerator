@@ -31,7 +31,7 @@ router.get("/branding-article", async (req, res) => {
 });
 
 
-// Step 4: New route for content details form
+
 router.get('/content-details', ensureAuthenticated, async (req, res) => {
   const businessId = req.session.businessId;
 
@@ -43,10 +43,17 @@ router.get('/content-details', ensureAuthenticated, async (req, res) => {
   }
 
   try {
-    const business = await Business.findOne({ _id: businessId, owner: req.user._id });
+    // Allow both owner and members to access the business
+    const business = await Business.findOne({
+      _id: businessId,
+      $or: [
+        { owner: req.user._id },
+        { 'members.user': req.user._id },
+      ],
+    });
     if (!business) {
       return res.status(404).json({
-        error: 'Business not found',
+        error: 'Business not found or you do not have access',
         redirect: '/blog-article/branding-article',
       });
     }

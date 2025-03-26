@@ -410,7 +410,7 @@ router.post('/:businessId/invite', ensureAuthenticated, ensureBusinessRole('Admi
                 <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; background-color: #ffffff; border: 1px solid #e0e0e0; border-radius: 8px;">
                   <tr>
                     <td align="center" style="padding: 20px;">
-                      <img src="https://via.placeholder.com/150x50?text=EditEdge+Multimedia" alt="EditEdge Multimedia Logo" style="max-width: 150px; margin-bottom: 20px; display: block;" />
+                      <img src="https://res.cloudinary.com/dowyujl8h/image/upload/v1738490869/5_bbrzhk.png" alt="EditEdge Multimedia Logo" style="max-width: 150px; margin-bottom: 20px; display: block;" />
                     </td>
                   </tr>
                   <tr>
@@ -426,13 +426,13 @@ router.post('/:businessId/invite', ensureAuthenticated, ensureBusinessRole('Admi
                       </p>
                       <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 30px auto;">
                         <tr>
-                          <td align="center" style="background-color: #007bff; border-radius: 5px;">
+                          <td align="center" style="background-color: #303030; border-radius: 5px;">
                             <a href="${FRONTEND_URL}/login" style="display: inline-block; padding: 12px 24px; color: #ffffff; font-size: 16px; font-weight: bold; text-decoration: none;">Log In to Join</a>
                           </td>
                         </tr>
                       </table>
                       <p style="color: #555555; font-size: 16px; line-height: 1.6; margin: 0 0 10px;">
-                        If you have any questions, feel free to reply to this email or contact our support team at <a href="mailto:support@editedgemultimedia.com" style="color: #007bff; text-decoration: none;">support@editedgemultimedia.com</a>.
+                        If you have any questions, feel free to reply to this email or contact our support team at <a href="mailto:support@editedgemultimedia.com" style="color: #303030; text-decoration: none;">support@editedgemultimedia.com</a>.
                       </p>
                       <p style="color: #555555; font-size: 16px; line-height: 1.6; margin: 0;">
                         Best regards,<br>The EditEdge Multimedia Team
@@ -443,7 +443,7 @@ router.post('/:businessId/invite', ensureAuthenticated, ensureBusinessRole('Admi
                     <td style="padding: 20px; border-top: 1px solid #e0e0e0;">
                       <p style="color: #999999; font-size: 12px; text-align: center; margin: 0;">
                         © 2025 EditEdge Multimedia. All rights reserved.<br>
-                        <a href="${FRONTEND_URL}/privacy" style="color: #999999; text-decoration: none;">Privacy Policy</a> | <a href="${FRONTEND_URL}/terms" style="color: #999999; text-decoration: none;">Terms of Service</a>
+                        <a href="${FRONTEND_URL}/privacy" style="color: #303030; text-decoration: none;">Privacy Policy</a> | <a href="${FRONTEND_URL}/terms" style="color: #999999; text-decoration: none;">Terms of Service</a>
                       </p>
                     </td>
                   </tr>
@@ -478,7 +478,7 @@ router.post('/:businessId/invite', ensureAuthenticated, ensureBusinessRole('Admi
               <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; background-color: #ffffff; border: 1px solid #e0e0e0; border-radius: 8px;">
                 <tr>
                   <td align="center" style="padding: 20px;">
-                    <img src="https://via.placeholder.com/150x50?text=EditEdge+Multimedia" alt="EditEdge Multimedia Logo" style="max-width: 150px; margin-bottom: 20px; display: block;" />
+                    <img src="https://res.cloudinary.com/dowyujl8h/image/upload/v1738490869/5_bbrzhk.png" alt="EditEdge Multimedia Logo" style="max-width: 150px; margin-bottom: 20px; display: block;" />
                   </td>
                 </tr>
                 <tr>
@@ -494,13 +494,13 @@ router.post('/:businessId/invite', ensureAuthenticated, ensureBusinessRole('Admi
                     </p>
                     <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 30px auto;">
                       <tr>
-                        <td align="center" style="background-color: #007bff; border-radius: 5px;">
+                        <td align="center" style="background-color: #303030; border-radius: 5px;">
                           <a href="${registrationLink}" style="display: inline-block; padding: 12px 24px; color: #ffffff; font-size: 16px; font-weight: bold; text-decoration: none;">Register Now</a>
                         </td>
                       </tr>
                     </table>
                     <p style="color: #555555; font-size: 16px; line-height: 1.6; margin: 0 0 10px;">
-                      If you have any questions, feel free to reply to this email or contact our support team at <a href="mailto:support@editedgemultimedia.com" style="color: #007bff; text-decoration: none;">support@editedgemultimedia.com</a>.
+                      If you have any questions, feel free to reply to this email or contact our support team at <a href="mailto:support@editedgemultimedia.com" style="color: #303030; text-decoration: none;">support@editedgemultimedia.com</a>.
                     </p>
                     <p style="color: #555555; font-size: 16px; line-height: 1.6; margin: 0;">
                       Best regards,<br>The EditEdge Multimedia Team
