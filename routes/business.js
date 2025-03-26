@@ -7,6 +7,9 @@ const mongoose = require("mongoose");
 const axios = require('axios');
 const { sendEmail } = require('../utils/email');
 const NodeCache = require('node-cache');
+const { storage } = require('../config/cloudinary'); // Your Cloudinary config
+const multer = require('multer');
+const upload = multer({ storage });
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:8080';
 
@@ -186,19 +189,10 @@ router.get('/', ensureAuthenticated, async (req, res) => {
 });
 
 // Add a new business
-router.post('/', ensureAuthenticated, async (req, res) => {
+router.post('/', ensureAuthenticated, upload.single('image'), async (req, res) => {
   const {
-    companyName,
-    description,
-    services,
-    targetAudience,
-    demographic,
-    address,
-    email,
-    phoneNumber,
-    brandTone,
-    hasWebsite,
-    companyWebsite,
+    companyName, description, services, targetAudience, demographic, address,
+    email, phoneNumber, brandTone, hasWebsite, companyWebsite
   } = req.body;
 
   if (!companyName || !description || !services || !targetAudience) {
@@ -207,32 +201,16 @@ router.post('/', ensureAuthenticated, async (req, res) => {
 
   try {
     const newBusiness = new Business({
-      companyName,
-      description,
-      services,
-      targetAudience,
-      demographic,
-      address,
-      email,
-      phoneNumber,
-      brandTone,
-      hasWebsite,
-      companyWebsite,
+      companyName, description, services, targetAudience, demographic, address,
+      email, phoneNumber, brandTone, hasWebsite, companyWebsite,
+      image: req.file ? req.file.path : null, // Store Cloudinary URL if uploaded
       owner: req.user._id,
       members: [{ user: req.user._id, role: 'Admin' }],
     });
 
     await newBusiness.save();
-
-    // Add business to user's businesses array
-    await User.findByIdAndUpdate(req.user._id, {
-      $push: { businesses: newBusiness._id },
-    });
-
-    // Set the businessId in the session
+    await User.findByIdAndUpdate(req.user._id, { $push: { businesses: newBusiness._id } });
     req.session.businessId = newBusiness._id;
-    console.log('Session updated with businessId:', req.session.businessId);
-
     res.json({ business: newBusiness });
   } catch (error) {
     console.error('Error creating business:', error);
@@ -254,7 +232,7 @@ router.get('/:businessId', ensureAuthenticated, async (req, res) => {
 
     const business = await Business.findById(businessId)
       .populate('owner', 'email name')
-      .populate('members.user', 'email name');
+      .populate('members.user', 'email name image');
     if (!business) {
       return res.status(404).json({ error: 'Business not found' });
     }
@@ -282,24 +260,14 @@ router.get('/:businessId', ensureAuthenticated, async (req, res) => {
 });
 
 // Update a business
-router.put('/:businessId', ensureAuthenticated, ensureBusinessRole('Admin'), async (req, res) => {
+router.put('/:businessId', ensureAuthenticated, ensureBusinessRole('Admin'), upload.single('image'), async (req, res) => {
   const { businessId } = req.params;
   const {
-    companyName,
-    description,
-    services,
-    targetAudience,
-    demographic,
-    address,
-    email,
-    phoneNumber,
-    brandTone,
-    hasWebsite,
-    companyWebsite,
+    companyName, description, services, targetAudience, demographic, address,
+    email, phoneNumber, brandTone, hasWebsite, companyWebsite
   } = req.body;
 
   try {
-    // Validate businessId
     if (!mongoose.Types.ObjectId.isValid(businessId)) {
       return res.status(400).json({ error: 'Invalid business ID' });
     }
@@ -309,7 +277,6 @@ router.put('/:businessId', ensureAuthenticated, ensureBusinessRole('Admin'), asy
       return res.status(404).json({ error: 'Business not found' });
     }
 
-    // Update fields
     business.companyName = companyName || business.companyName;
     business.description = description || business.description;
     business.services = services || business.services;
@@ -321,6 +288,7 @@ router.put('/:businessId', ensureAuthenticated, ensureBusinessRole('Admin'), asy
     business.brandTone = brandTone || business.brandTone;
     business.hasWebsite = hasWebsite || business.hasWebsite;
     business.companyWebsite = companyWebsite || business.companyWebsite;
+    if (req.file) business.image = req.file.path; // Update image if uploaded
 
     await business.save();
     res.json({ business });

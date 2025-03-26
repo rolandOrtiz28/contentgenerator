@@ -357,7 +357,7 @@ router.post('/copy/:contentId', ensureAuthenticated, async (req, res) => {
   }
 });
 
-// Download content as Word file
+
 // Inside content.js, within the downloadContent route
 router.get('/download/:contentId', ensureAuthenticated, async (req, res) => {
   try {
@@ -481,6 +481,35 @@ router.get('/download/:contentId', ensureAuthenticated, async (req, res) => {
           addParagraph('Conclusion', { heading: HeadingLevel.HEADING_2 }),
           addParagraph(content.data.conclusion)
         );
+      }
+
+      if (content.data.internalLinks?.length) {
+        documentChildren.push(
+          addParagraph('Internal Links', { heading: HeadingLevel.HEADING_2 })
+        );
+        content.data.internalLinks.forEach(link => {
+          documentChildren.push(addParagraph(link, { bullet: { level: 0 } }));
+        });
+      }
+    
+      // Schema Markup
+      if (content.data.schemaMarkup) {
+        documentChildren.push(
+          addParagraph('Schema Markup', { heading: HeadingLevel.HEADING_2 }),
+          addParagraph(content.data.schemaMarkup)
+        );
+      }
+
+      if (content.data.images?.length) {
+        documentChildren.push(
+          addParagraph('Images', { heading: HeadingLevel.HEADING_2 })
+        );
+        content.data.images.forEach((img, i) => {
+          documentChildren.push(
+            addParagraph(`Image ${i + 1}: ${img.url}`),
+            addParagraph(`Alt Text: ${img.altText || 'N/A'}`)
+          );
+        });
       }
     } else if (content.type === 'SocialMedia') {
       // Add Caption (H1)
@@ -660,6 +689,8 @@ router.post('/:contentId/comment', ensureAuthenticated, async (req, res) => {
     return res.status(400).json({ error: 'Comment text is required' });
   }
 
+  const trimmedText = text.trim();
+
   try {
     const content = await Content.findById(contentId);
     if (!content) {
@@ -694,11 +725,11 @@ router.post('/:contentId/comment', ensureAuthenticated, async (req, res) => {
     const comment = new Comment({
       contentId,
       userId,
-      text: text.trim(),
+      text: trimmedText,
     });
     await comment.save();
 
-    const populatedComment = await Comment.findById(comment._id).populate('userId', 'email name');
+    const populatedComment = await Comment.findById(comment._id).populate('userId', 'email name image');
 
     if (business) {
       const membersToNotify = business.members.filter(m => m.user.toString() !== userId.toString());
@@ -710,15 +741,15 @@ router.post('/:contentId/comment', ensureAuthenticated, async (req, res) => {
       const usersToNotify = await User.find({ _id: { $in: membersToNotify.map(m => m.user) } });
       for (const member of usersToNotify) {
         const subject = `New Comment on Content in ${business.companyName}`;
-        const text = `Hello ${member.name},\n\n${user.name} added a new comment to a piece of content in ${business.companyName}:\n\n"${text}"\n\nLog in to view the content and reply.\n\nBest regards,\nNew Test Business Team`;
+        const plainText = `Hello ${member.name},\n\n${user.name} added a new comment to a piece of content in ${business.companyName}:\n\n"${trimmedText}"\n\nLog in to view the content and reply.\n\nBest regards,\nNew Test Business Team`;
         const html = `
           <h2>Hello ${member.name},</h2>
           <p><strong>${user.name}</strong> added a new comment to a piece of content in <strong>${business.companyName}</strong>:</p>
-          <blockquote>${text}</blockquote>
+          <blockquote>${trimmedText}</blockquote>
           <p>Log in to view the content and reply.</p>
           <p>Best regards,<br>New Test Business Team</p>
         `;
-        await sendEmail(member.email, subject, text, html);
+        await sendEmail(member.email, subject, plainText, html);
       }
     }
 
@@ -728,6 +759,7 @@ router.post('/:contentId/comment', ensureAuthenticated, async (req, res) => {
     res.status(500).json({ error: 'Failed to add comment', details: error.message });
   }
 });
+
 
 // View comments for a piece of content
 router.get('/:contentId/comments', ensureAuthenticated, async (req, res) => {
@@ -790,5 +822,58 @@ router.get('/:contentId/comments', ensureAuthenticated, async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch comments', details: error.message });
   }
 });
+
+router.put('/:contentId/comments/:commentId', ensureAuthenticated, async (req, res) => {
+  const { contentId, commentId } = req.params;
+  const { text } = req.body;
+  const userId = req.user._id;
+
+  if (!text || !text.trim()) {
+    return res.status(400).json({ error: 'Updated comment text is required' });
+  }
+
+  try {
+    const comment = await Comment.findOne({ _id: commentId, contentId });
+    if (!comment) {
+      return res.status(404).json({ error: 'Comment not found' });
+    }
+
+    if (comment.userId.toString() !== userId.toString()) {
+      return res.status(403).json({ error: 'Unauthorized to edit this comment' });
+    }
+
+    comment.text = text.trim();
+    await comment.save();
+
+    const updatedComment = await Comment.findById(comment._id).populate('userId', 'email name image');
+    res.json({ message: 'Comment updated', comment: updatedComment });
+  } catch (error) {
+    console.error('Error updating comment:', error);
+    res.status(500).json({ error: 'Failed to update comment', details: error.message });
+  }
+});
+
+router.delete('/:contentId/comments/:commentId', ensureAuthenticated, async (req, res) => {
+  const { contentId, commentId } = req.params;
+  const userId = req.user._id;
+
+  try {
+    const comment = await Comment.findOne({ _id: commentId, contentId });
+    if (!comment) {
+      return res.status(404).json({ error: 'Comment not found' });
+    }
+
+    if (comment.userId.toString() !== userId.toString()) {
+      return res.status(403).json({ error: 'Unauthorized to delete this comment' });
+    }
+
+    await Comment.deleteOne({ _id: commentId });
+    res.json({ message: 'Comment deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting comment:', error);
+    res.status(500).json({ error: 'Failed to delete comment', details: error.message });
+  }
+});
+
 
 module.exports = router;

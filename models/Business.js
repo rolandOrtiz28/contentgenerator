@@ -61,6 +61,7 @@ const BusinessSchema = new mongoose.Schema({
     ref: 'User',
     required: true,
   },
+  image: { type: String, default: "/Avatar.png" },
   members: [
     {
       user: {

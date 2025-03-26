@@ -22,6 +22,7 @@ const UserSchema = new mongoose.Schema({
       ref: 'Business',
     },
   ],
+  image: { type: String, default: "/Avatar.png" },
   personalContent: [
     {
       type: mongoose.Schema.Types.ObjectId,
