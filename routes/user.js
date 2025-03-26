@@ -3,6 +3,22 @@ const router = express.Router();
 const User = require('../models/User');
 const { ensureAuthenticated } = require('../middleware/auth');
 
+router.get('/me', ensureAuthenticated, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id)
+      .select('-password') // Exclude password
+      .populate('businesses') // Populate businesses with full documents
+      .populate('personalContent'); // Populate personalContent with full documents
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json(user);
+  } catch (error) {
+    console.error('Error fetching user:', error);
+    res.status(500).json({ error: 'Failed to fetch user', details: error.message });
+  }
+});
+
 // Update user details
 router.put('/:id', ensureAuthenticated, async (req, res) => {
     try {

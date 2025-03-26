@@ -12,6 +12,29 @@ const { jsPDF } = require('jspdf'); // For generating PDFs (we'll use docx inste
 const { Document, Packer, Paragraph, TextRun, HeadingLevel } = require('docx'); // For generating Word documents
 
 // Get analytics data for the user's content
+
+router.get('/', ensureAuthenticated, async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    const userId = req.user._id;
+
+    let query = { userId };
+    if (startDate && endDate) {
+      query.createdAt = { $gte: new Date(startDate), $lte: new Date(endDate) };
+    }
+
+    const content = await Content.find(query)
+      .populate('businessId', 'companyName')
+      .populate('userId', 'email name')
+      .exec();
+
+    res.status(200).json({ content });
+  } catch (error) {
+    console.error('Error in GET /api/content:', error);
+    res.status(500).json({ error: 'Failed to fetch content', details: error.message });
+  }
+});
+
 router.get('/analytics', ensureAuthenticated, async (req, res) => {
   try {
     const userId = req.user._id;
