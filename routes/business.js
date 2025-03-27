@@ -536,4 +536,70 @@ router.post('/select-business', ensureAuthenticated, async (req, res) => {
   }
 });
 
+
+
+// Remove a member from a business (only owner can perform this action)
+router.delete('/:businessId/members/:memberId', ensureAuthenticated, async (req, res) => {
+  const { businessId, memberId } = req.params;
+
+  try {
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(businessId) || !mongoose.Types.ObjectId.isValid(memberId)) {
+      return res.status(400).json({ error: 'Invalid business ID or member ID' });
+    }
+
+    // Fetch the business
+    const business = await Business.findById(businessId);
+    if (!business) {
+      return res.status(404).json({ error: 'Business not found' });
+    }
+
+    // Check if the requester is the owner
+    if (business.owner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: 'Only the business owner can remove members' });
+    }
+
+    // Check if the member exists in the business
+    const memberIndex = business.members.findIndex(
+      (member) => member.user.toString() === memberId
+    );
+    if (memberIndex === -1) {
+      return res.status(404).json({ error: 'Member not found in this business' });
+    }
+
+    // Prevent owner from removing themselves via this route
+    if (memberId === req.user._id.toString()) {
+      return res.status(400).json({ error: 'Owner cannot remove themselves using this route' });
+    }
+
+    // Remove the member from the business
+    business.members.splice(memberIndex, 1);
+    await business.save();
+
+    // Remove the business from the member's businesses array
+    await User.findByIdAndUpdate(memberId, {
+      $pull: { businesses: businessId },
+    });
+
+    res.json({ message: 'Member removed successfully' });
+  } catch (error) {
+    console.error('Error removing member:', error);
+    res.status(500).json({ error: 'Failed to remove member', details: error.message });
+  }
+});
+
+router.put('/:businessId/members/:memberId/role', ensureAuthenticated, async (req, res) => {
+  const { businessId, memberId } = req.params;
+  const { role } = req.body;
+  if (req.user._id.toString() !== (await Business.findById(businessId)).owner.toString()) {
+    return res.status(403).json({ error: 'Only owner can update roles' });
+  }
+  const business = await Business.findOneAndUpdate(
+    { _id: businessId, 'members.user': memberId },
+    { $set: { 'members.$.role': role } },
+    { new: true }
+  );
+  res.json(business);
+});
+
 module.exports = router;

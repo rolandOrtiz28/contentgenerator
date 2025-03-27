@@ -25,7 +25,7 @@ router.get('/', ensureAuthenticated, async (req, res) => {
 
     const content = await Content.find(query)
       .populate('businessId', 'companyName')
-      .populate('userId', 'email name')
+      .populate('userId', 'email name image')
       .exec();
 
     res.status(200).json({ content });
@@ -197,7 +197,7 @@ router.get('/history', ensureAuthenticated, async (req, res) => {
       .skip(skip)
       .limit(limit)
       .populate('businessId', 'companyName')
-      .populate('userId', 'email name');
+      .populate('userId', 'email name image');
 
     const totalContent = await Content.countDocuments(query);
 
@@ -259,7 +259,7 @@ router.get('/id/:contentId', ensureAuthenticated, async (req, res) => {
 
     const content = await Content.findById(contentId)
       .populate('businessId', 'companyName')
-      .populate('userId', 'email name')
+      .populate('userId', 'email name image')
       .exec();
 
     if (!content) {
@@ -679,13 +679,14 @@ router.delete('/:contentId', ensureAuthenticated, ensureBusinessRole('Editor'), 
   }
 });
 
-// Add a comment to a piece of content
 router.post('/:contentId/comment', ensureAuthenticated, async (req, res) => {
+  console.log("POST /api/content/:contentId/comment hit with contentId:", req.params.contentId);
   const { contentId } = req.params;
   const userId = req.user._id;
   const { text } = req.body;
 
   if (!text || !text.trim()) {
+    console.log("Comment text missing");
     return res.status(400).json({ error: 'Comment text is required' });
   }
 
@@ -694,31 +695,37 @@ router.post('/:contentId/comment', ensureAuthenticated, async (req, res) => {
   try {
     const content = await Content.findById(contentId);
     if (!content) {
+      console.log("Content not found for contentId:", contentId);
       return res.status(404).json({ error: 'Content not found' });
     }
+    console.log("Content found:", content);
 
     const user = await User.findById(userId).populate('businesses');
     if (!user) {
+      console.log("User not found for userId:", userId);
       return res.status(404).json({ error: 'User not found' });
     }
 
     const hasAccess = content.userId.toString() === userId.toString() || 
       user.businesses.some(b => b._id.toString() === content.businessId?.toString());
+    console.log("Has access:", hasAccess);
     if (!hasAccess) {
+      console.log("Access denied for userId:", userId, "on contentId:", contentId);
       return res.status(403).json({ error: 'You do not have access to this content' });
     }
 
-    let business = null;
     if (content.businessId) {
-      business = await Business.findById(content.businessId);
-      if (!business) {
-        return res.status(404).json({ error: 'Business not found' });
-      }
-
-      const isOwner = business.owner.toString() === userId.toString();
-      const member = business.members.find(m => m.user.toString() === userId.toString());
-      if (!isOwner && !member) {
-        return res.status(403).json({ error: 'You do not have permission to comment on this content' });
+      const business = await Business.findById(content.businessId);
+      if (business) { // Only check permissions if business exists
+        const isOwner = business.owner.toString() === userId.toString();
+        const member = business.members.find(m => m.user.toString() === userId.toString());
+        console.log("Is owner:", isOwner, "Is member:", !!member);
+        if (!isOwner && !member) {
+          console.log("Permission denied for userId:", userId, "on businessId:", content.businessId);
+          return res.status(403).json({ error: 'You do not have permission to comment on this content' });
+        }
+      } else {
+        console.log("Business not found for businessId:", content.businessId, "proceeding as personal content");
       }
     }
 
@@ -728,28 +735,32 @@ router.post('/:contentId/comment', ensureAuthenticated, async (req, res) => {
       text: trimmedText,
     });
     await comment.save();
+    console.log("Comment saved:", comment._id);
 
     const populatedComment = await Comment.findById(comment._id).populate('userId', 'email name image');
 
-    if (business) {
-      const membersToNotify = business.members.filter(m => m.user.toString() !== userId.toString());
-      const ownerId = business.owner.toString();
-      if (ownerId !== userId.toString()) {
-        membersToNotify.push({ user: business.owner });
-      }
+    if (content.businessId) {
+      const business = await Business.findById(content.businessId);
+      if (business) { // Only send emails if business exists
+        const membersToNotify = business.members.filter(m => m.user.toString() !== userId.toString());
+        const ownerId = business.owner.toString();
+        if (ownerId !== userId.toString()) {
+          membersToNotify.push({ user: business.owner });
+        }
 
-      const usersToNotify = await User.find({ _id: { $in: membersToNotify.map(m => m.user) } });
-      for (const member of usersToNotify) {
-        const subject = `New Comment on Content in ${business.companyName}`;
-        const plainText = `Hello ${member.name},\n\n${user.name} added a new comment to a piece of content in ${business.companyName}:\n\n"${trimmedText}"\n\nLog in to view the content and reply.\n\nBest regards,\nNew Test Business Team`;
-        const html = `
-          <h2>Hello ${member.name},</h2>
-          <p><strong>${user.name}</strong> added a new comment to a piece of content in <strong>${business.companyName}</strong>:</p>
-          <blockquote>${trimmedText}</blockquote>
-          <p>Log in to view the content and reply.</p>
-          <p>Best regards,<br>New Test Business Team</p>
-        `;
-        await sendEmail(member.email, subject, plainText, html);
+        const usersToNotify = await User.find({ _id: { $in: membersToNotify.map(m => m.user) } });
+        for (const member of usersToNotify) {
+          const subject = `New Comment on Content in ${business.companyName}`;
+          const plainText = `Hello ${member.name},\n\n${user.name} added a new comment to a piece of content in ${business.companyName}:\n\n"${trimmedText}"\n\nLog in to view the content and reply.\n\nBest regards,\nNew Test Business Team`;
+          const html = `
+            <h2>Hello ${member.name},</h2>
+            <p><strong>${user.name}</strong> added a new comment to a piece of content in <strong>${business.companyName}</strong>:</p>
+            <blockquote>${trimmedText}</blockquote>
+            <p>Log in to view the content and reply.</p>
+            <p>Best regards,<br>New Test Business Team</p>
+          `;
+          await sendEmail(member.email, subject, plainText, html);
+        }
       }
     }
 
@@ -763,36 +774,44 @@ router.post('/:contentId/comment', ensureAuthenticated, async (req, res) => {
 
 // View comments for a piece of content
 router.get('/:contentId/comments', ensureAuthenticated, async (req, res) => {
+  console.log("GET /api/content/:contentId/comments hit with contentId:", req.params.contentId);
   const { contentId } = req.params;
   const userId = req.user._id;
 
   try {
     const content = await Content.findById(contentId);
     if (!content) {
+      console.log("Content not found for contentId:", contentId);
       return res.status(404).json({ error: 'Content not found' });
     }
+    console.log("Content found:", content);
 
     const user = await User.findById(userId).populate('businesses');
     if (!user) {
+      console.log("User not found for userId:", userId);
       return res.status(404).json({ error: 'User not found' });
     }
 
     const hasAccess = content.userId.toString() === userId.toString() || 
       user.businesses.some(b => b._id.toString() === content.businessId?.toString());
+    console.log("Has access:", hasAccess);
     if (!hasAccess) {
+      console.log("Access denied for userId:", userId, "on contentId:", contentId);
       return res.status(403).json({ error: 'You do not have access to this content' });
     }
 
     if (content.businessId) {
       const business = await Business.findById(content.businessId);
-      if (!business) {
-        return res.status(404).json({ error: 'Business not found' });
-      }
-
-      const isOwner = business.owner.toString() === userId.toString();
-      const member = business.members.find(m => m.user.toString() === userId.toString());
-      if (!isOwner && !member) {
-        return res.status(403).json({ error: 'You do not have permission to view comments on this content' });
+      if (business) { // Only check permissions if business exists
+        const isOwner = business.owner.toString() === userId.toString();
+        const member = business.members.find(m => m.user.toString() === userId.toString());
+        console.log("Is owner:", isOwner, "Is member:", !!member);
+        if (!isOwner && !member) {
+          console.log("Permission denied for userId:", userId, "on businessId:", content.businessId);
+          return res.status(403).json({ error: 'You do not have permission to view comments on this content' });
+        }
+      } else {
+        console.log("Business not found for businessId:", content.businessId, "proceeding as personal content");
       }
     }
 
@@ -804,7 +823,8 @@ router.get('/:contentId/comments', ensureAuthenticated, async (req, res) => {
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
-      .populate('userId', 'email name');
+      .populate('userId', 'email name image');
+    console.log("Comments retrieved:", comments.length);
 
     const totalComments = await Comment.countDocuments({ contentId });
 
