@@ -20,6 +20,8 @@ const contentRoutes = require('./routes/content');
 const userRoutes = require('./routes/user');
 const authRoute = require('./routes/auth');
 const billingRoutes = require('./routes/billing');
+const imageRoutes = require('./routes/imageRoutes');
+
 require('./config/passport'); // Initialize Passport
 
 const app = express();
@@ -293,6 +295,7 @@ app.use('/api/business', businessRoute);
 app.use('/api/content', contentRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/billing', billingRoutes);
+app.use('/api/images', imageRoutes);
 
 // Error Handling
 app.use((err, req, res, next) => {

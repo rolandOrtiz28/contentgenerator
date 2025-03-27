@@ -4,22 +4,25 @@ const stripe = require('../config/stripe');
 const { ensureAuthenticated } = require('../middleware/auth');
 const User = require('../models/User');
 
-// Subscription plans (configure these in your Stripe Dashboard)
+// Subscription plans and prices
 const PLANS = {
-    Basic: {
-      priceId: 'price_1R5kVHKIAap6PevkT0ZKfLj7', // Basic plan Price ID
-      articleLimit: 2,
-      socialMediaLimit: 3,
-    },
-    Pro: {
-      priceId: 'price_1R5kasKIAap6PevkaJJQQcEX', // Pro plan Price ID
-      articleLimit: 5,
-      socialMediaLimit: 5,
-    },
-    Enterprise: {
-      productId: 'prod_RzkJJpO8AwyEbp', // Enterprise Product ID
-      priceId: 'price_1R5kp4KIAap6PevkFWnij2js', // Enterprise placeholder Price ID
-    },
+  Basic: {
+    priceId: 'price_1R5kVHKIAap6PevkT0ZKfLj7',
+    articleLimit: 2,
+    socialMediaLimit: 3,
+    level: 1,
+  },
+  Pro: {
+    priceId: 'price_1R5kasKIAap6PevkaJJQQcEX',
+    articleLimit: 5,
+    socialMediaLimit: 5,
+    level: 2,
+  },
+  Enterprise: {
+    productId: 'prod_RzkJJpO8AwyEbp',
+    priceId: 'price_1R5kp4KIAap6PevkFWnij2js',
+    level: 3,
+  },
 };
 
 // Subscribe to a plan
@@ -152,10 +155,14 @@ router.get('/subscription', ensureAuthenticated, async (req, res) => {
     }
 
     const subscription = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
+    // Update user status in case it has changed in Stripe
+    user.subscriptionStatus = subscription.status;
+    await user.save();
+
     res.json({
       subscription: {
         plan: user.subscription,
-        status: subscription.status, // Use Stripe's status
+        status: subscription.status,
         currentPeriodEnd: subscription.current_period_end,
         cancelAtPeriodEnd: subscription.cancel_at_period_end,
       },
@@ -180,6 +187,156 @@ router.get('/history', ensureAuthenticated, async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch billing history', details: error.message });
   }
 });
+
+
+router.post('/cancel', ensureAuthenticated, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (!user.stripeSubscriptionId) {
+      return res.status(400).json({ error: 'No active subscription to cancel' });
+    }
+
+    // Cancel the subscription in Stripe
+    const subscription = await stripe.subscriptions.cancel(user.stripeSubscriptionId);
+
+    // Update user in the database
+    user.subscription = 'None';
+    user.stripeSubscriptionId = null;
+    user.subscriptionStatus = 'canceled';
+    user.articleGenerationCount = 0;
+    user.socialMediaGenerationCount = 0;
+    user.contentGenerationResetDate = null;
+    await user.save();
+
+    res.json({ message: 'Subscription canceled successfully' });
+  } catch (error) {
+    console.error('Error canceling subscription:', error);
+    res.status(500).json({ error: 'Failed to cancel subscription', details: error.message });
+  }
+});
+
+router.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} - Body:`, req.body);
+  next();
+});
+
+// Upgrade subscription
+router.post('/upgrade', ensureAuthenticated, async (req, res) => {
+  const { plan, paymentMethodId, customPrice } = req.body; // Changed newPlan to plan
+  console.log('Upgrade request received:', { plan, paymentMethodId, customPrice });
+
+  if (!plan || !['Basic', 'Pro', 'Enterprise'].includes(plan)) {
+    console.log('Invalid plan:', plan);
+    return res.status(400).json({ error: 'Invalid plan' });
+  }
+
+  if (!paymentMethodId) {
+    console.log('Missing payment method ID');
+    return res.status(400).json({ error: 'Payment method ID is required' });
+  }
+
+  if (plan === 'Enterprise' && (customPrice === undefined || isNaN(customPrice))) {
+    console.log('Missing or invalid custom price for Enterprise:', customPrice);
+    return res.status(400).json({ error: 'Custom price is required for Enterprise plan and must be a valid number' });
+  }
+
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      console.log('User not found:', req.user._id);
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (!user.stripeSubscriptionId) {
+      console.log('No active subscription to upgrade for user:', user._id);
+      return res.status(400).json({ error: 'No active subscription to upgrade' });
+    }
+
+    // Check if the new plan is an upgrade
+    const currentPlanLevel = PLANS[user.subscription]?.level || 0;
+    const newPlanLevel = PLANS[plan].level;
+    if (newPlanLevel <= currentPlanLevel) {
+      console.log(`Downgrade attempt: Current plan level ${currentPlanLevel}, New plan level ${newPlanLevel}`);
+      return res.status(400).json({
+        error: 'Downgrading is not allowed. Please cancel your current subscription and subscribe to a new plan.',
+      });
+    }
+
+    // Retrieve the current subscription
+    const currentSubscription = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
+    console.log('Current subscription retrieved:', currentSubscription.id);
+
+    // Cancel the current subscription
+    await stripe.subscriptions.cancel(user.stripeSubscriptionId);
+    console.log('Current subscription canceled:', user.stripeSubscriptionId);
+
+    // Create a new subscription for the upgraded plan
+    let subscription;
+    if (plan === 'Enterprise') {
+      const price = await stripe.prices.create({
+        product: PLANS[plan].productId,
+        unit_amount: customPrice * 100,
+        currency: 'usd',
+        recurring: { interval: 'month' },
+      });
+      console.log('Created new price for Enterprise:', price.id);
+
+      subscription = await stripe.subscriptions.create({
+        customer: user.stripeCustomerId,
+        items: [{ price: price.id }],
+        payment_behavior: 'default_incomplete',
+        payment_settings: {
+          payment_method_types: ['card'],
+          save_default_payment_method: 'on_subscription',
+        },
+        expand: ['latest_invoice.payment_intent'],
+      });
+    } else {
+      subscription = await stripe.subscriptions.create({
+        customer: user.stripeCustomerId,
+        items: [{ price: PLANS[plan].priceId }],
+        payment_behavior: 'default_incomplete',
+        payment_settings: {
+          payment_method_types: ['card'],
+          save_default_payment_method: 'on_subscription',
+        },
+        expand: ['latest_invoice.payment_intent'],
+      });
+    }
+    console.log('New subscription created:', subscription.id);
+
+    // Update user with new subscription details
+    user.subscription = plan;
+    user.stripeSubscriptionId = subscription.id;
+    user.subscriptionStatus = subscription.status;
+    await user.save();
+    console.log('User updated with new subscription:', user._id);
+
+    const clientSecret = subscription.latest_invoice.payment_intent
+      ? subscription.latest_invoice.payment_intent.client_secret
+      : null;
+
+    res.json({
+      subscriptionId: subscription.id,
+      clientSecret: clientSecret,
+    });
+  } catch (error) {
+    console.error('Error upgrading subscription:', error);
+    res.status(500).json({ error: 'Failed to upgrade subscription', details: error.message });
+  }
+});
+
+// Add this at the bottom of billing.js (or anywhere in your router file)
+router.get('/stripe-publishable-key', (req, res) => {
+  res.json({
+    key: process.env.PUBLISHKEY
+  });
+});
+
 
 
 module.exports = router;
