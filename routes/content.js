@@ -5,6 +5,7 @@ const ObjectId = mongoose.Types.ObjectId;
 const Content = require('../models/Content');
 const Business = require('../models/Business');
 const User = require('../models/User');
+const Image = require('../models/Image');
 const Comment = require('../models/Comment');
 const { ensureAuthenticated, ensureBusinessRole } = require('../middleware/auth');
 const { sendEmail } = require('../utils/email');
@@ -683,10 +684,9 @@ router.post('/:contentId/comment', ensureAuthenticated, async (req, res) => {
   console.log("POST /api/content/:contentId/comment hit with contentId:", req.params.contentId);
   const { contentId } = req.params;
   const userId = req.user._id;
-  const { text } = req.body;
+  const { text, imageUrl } = req.body;
 
-  if (!text || !text.trim()) {
-    console.log("Comment text missing");
+  if (typeof text !== 'string' || !text.trim()) {
     return res.status(400).json({ error: 'Comment text is required' });
   }
 
@@ -708,7 +708,6 @@ router.post('/:contentId/comment', ensureAuthenticated, async (req, res) => {
 
     const hasAccess = content.userId.toString() === userId.toString() || 
       user.businesses.some(b => b._id.toString() === content.businessId?.toString());
-    console.log("Has access:", hasAccess);
     if (!hasAccess) {
       console.log("Access denied for userId:", userId, "on contentId:", contentId);
       return res.status(403).json({ error: 'You do not have access to this content' });
@@ -716,16 +715,12 @@ router.post('/:contentId/comment', ensureAuthenticated, async (req, res) => {
 
     if (content.businessId) {
       const business = await Business.findById(content.businessId);
-      if (business) { // Only check permissions if business exists
+      if (business) {
         const isOwner = business.owner.toString() === userId.toString();
         const member = business.members.find(m => m.user.toString() === userId.toString());
-        console.log("Is owner:", isOwner, "Is member:", !!member);
         if (!isOwner && !member) {
-          console.log("Permission denied for userId:", userId, "on businessId:", content.businessId);
           return res.status(403).json({ error: 'You do not have permission to comment on this content' });
         }
-      } else {
-        console.log("Business not found for businessId:", content.businessId, "proceeding as personal content");
       }
     }
 
@@ -733,15 +728,17 @@ router.post('/:contentId/comment', ensureAuthenticated, async (req, res) => {
       contentId,
       userId,
       text: trimmedText,
+      ...(imageUrl && typeof imageUrl === 'string' && { imageUrl }),
     });
+
     await comment.save();
+    const populatedComment = await Comment.findById(comment._id).populate('userId', 'email name image');
     console.log("Comment saved:", comment._id);
 
-    const populatedComment = await Comment.findById(comment._id).populate('userId', 'email name image');
-
+    // Optional: Send email notifications
     if (content.businessId) {
       const business = await Business.findById(content.businessId);
-      if (business) { // Only send emails if business exists
+      if (business) {
         const membersToNotify = business.members.filter(m => m.user.toString() !== userId.toString());
         const ownerId = business.owner.toString();
         if (ownerId !== userId.toString()) {
@@ -845,24 +842,27 @@ router.get('/:contentId/comments', ensureAuthenticated, async (req, res) => {
 
 router.put('/:contentId/comments/:commentId', ensureAuthenticated, async (req, res) => {
   const { contentId, commentId } = req.params;
-  const { text } = req.body;
   const userId = req.user._id;
 
-  if (!text || !text.trim()) {
-    return res.status(400).json({ error: 'Updated comment text is required' });
+  const text = typeof req.body.text === 'string' ? req.body.text.trim() : '';
+  const imageUrl = req.body.hasOwnProperty('imageUrl') ? req.body.imageUrl : undefined;
+
+  if (!text && imageUrl === undefined) {
+    return res.status(400).json({ error: 'Comment must have text or image' });
   }
 
   try {
     const comment = await Comment.findOne({ _id: commentId, contentId });
-    if (!comment) {
-      return res.status(404).json({ error: 'Comment not found' });
-    }
+    if (!comment) return res.status(404).json({ error: 'Comment not found' });
 
     if (comment.userId.toString() !== userId.toString()) {
       return res.status(403).json({ error: 'Unauthorized to edit this comment' });
     }
 
-    comment.text = text.trim();
+    if (text) comment.text = text;
+    if (imageUrl === null) comment.imageUrl = undefined; // Clear image
+    else if (typeof imageUrl === 'string') comment.imageUrl = imageUrl;
+
     await comment.save();
 
     const updatedComment = await Comment.findById(comment._id).populate('userId', 'email name image');
@@ -872,6 +872,7 @@ router.put('/:contentId/comments/:commentId', ensureAuthenticated, async (req, r
     res.status(500).json({ error: 'Failed to update comment', details: error.message });
   }
 });
+
 
 router.delete('/:contentId/comments/:commentId', ensureAuthenticated, async (req, res) => {
   const { contentId, commentId } = req.params;
@@ -894,6 +895,89 @@ router.delete('/:contentId/comments/:commentId', ensureAuthenticated, async (req
     res.status(500).json({ error: 'Failed to delete comment', details: error.message });
   }
 });
+
+// Update Content with Selected Image (for social media posts)
+router.patch("/select-image/:contentId", ensureAuthenticated, async (req, res) => {
+  try {
+    const { imageId } = req.body;
+
+    if (!imageId) {
+      return res.status(400).json({ error: "No image ID provided" });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(imageId)) {
+      return res.status(400).json({ error: "Invalid image ID" });
+    }
+
+    const image = await Image.findById(imageId);
+    if (!image) {
+      return res.status(404).json({ error: "Image not found" });
+    }
+
+    const content = await Content.findById(req.params.contentId);
+    if (!content) {
+      return res.status(404).json({ error: "Content not found" });
+    }
+
+    if (content.businessId.toString() !== req.session.businessId) {
+      return res.status(403).json({ error: "Unauthorized to update this content" });
+    }
+
+    content.data.imageUrl = image.url;
+    content.markModified('data');
+    await content.save();
+
+    res.status(200).json({ content });
+  } catch (err) {
+    console.error("Error selecting image for social content:", err);
+    res.status(500).json({ error: "Failed to update content with image" });
+  }
+});
+
+
+
+
+router.patch("/select-images/:contentId", ensureAuthenticated, async (req, res) => {
+  try {
+    const { imageIds } = req.body;
+
+    if (!imageIds || !Array.isArray(imageIds) || imageIds.length === 0) {
+      return res.status(400).json({ error: "No image IDs provided" });
+    }
+
+    const invalidIds = imageIds.filter(id => !mongoose.Types.ObjectId.isValid(id));
+    if (invalidIds.length > 0) {
+      return res.status(400).json({ error: "One or more image IDs are invalid" });
+    }
+
+    const images = await Image.find({ _id: { $in: imageIds } });
+    if (images.length !== imageIds.length) {
+      return res.status(404).json({ error: "One or more images not found" });
+    }
+
+    const content = await Content.findById(req.params.contentId);
+    if (!content) {
+      return res.status(404).json({ error: "Content not found" });
+    }
+
+    if (content.businessId.toString() !== req.session.businessId) {
+      return res.status(403).json({ error: "Unauthorized to update this content" });
+    }
+
+    content.data.images = images.map((img) => ({
+      url: img.url,
+      altText: img.label || "Article image"
+    }));
+    content.markModified('data');
+    await content.save();
+
+    res.status(200).json({ content });
+  } catch (err) {
+    console.error("Error selecting images for article:", err);
+    res.status(500).json({ error: "Failed to update content with images" });
+  }
+});
+
 
 
 module.exports = router;

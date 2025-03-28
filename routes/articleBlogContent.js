@@ -414,9 +414,7 @@ router.post('/generate-content-article', ensureAuthenticated, ensureBusinessRole
         conclusion: "We apologize for the inconvenience. Contact support if the issue persists.",
         internalLinks: ["/about", "/contact"],
         schemaMarkup: "{\"@context\": \"https://schema.org\", \"@type\": \"Article\", \"headline\": \"Fallback Article Title\", \"description\": \"This is a fallback article due to generation issues.\"}",
-        images: [
-          { url: "/images/fallback-image.jpg", altText: "Fallback image" }
-        ]
+        images: []
       };
     }
 
@@ -481,7 +479,12 @@ router.post('/generate-content-article', ensureAuthenticated, ensureBusinessRole
     };
     const userArticleLimit = articleLimits[user.subscription] || 0;
     const remainingArticles = userArticleLimit - user.articleGenerationCount;
-    const response = { redirect: '/blog-article/generated-article' };
+    const response = {
+      ...generatedContent,
+      contentId: content._id.toString(),
+      imageSelectionPending: true, // Always true for articles
+      redirect: '/blog-article/generated-article'
+    };
     if (process.env.NODE_ENV !== 'development' && !user.isEditEdgeUser && remainingArticles === 1) {
       response.warning = `You have 1 article generation left this week for the ${user.subscription} plan.`;
     }

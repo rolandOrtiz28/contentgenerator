@@ -104,4 +104,27 @@ router.delete("/business/:businessId", ensureAuthenticated, async (req, res) => 
   }
 });
 
+router.get("/cloud/:businessId", ensureAuthenticated, async (req, res) => {
+  try {
+    const images = await Image.find({ businessId: req.params.businessId }).select("url label description tags _id");
+    res.status(200).json({ images });
+  } catch (err) {
+    console.error("Failed to load cloud images:", err); // ADD THIS
+    res.status(500).json({ error: "Failed to load cloud images" });
+  }
+});
+
+router.get("/accessible-cloud", ensureAuthenticated, async (req, res) => {
+  try {
+    const businessId = req.session.businessId || req.query.businessId;
+    if (!businessId) {
+      return res.status(400).json({ error: "No businessId provided" });
+    }
+    const images = await Image.find({ businessId }).select("url label description tags _id");
+    res.status(200).json({ images });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to load cloud images" });
+  }
+});
+
 module.exports = router;

@@ -495,7 +495,6 @@ Generate a Social Media ${socialMediaType} for ${companyName}.
     ? extractedContent.hashtags.split(' ').filter((tag) => tag.trim())
     : ['#DefaultHashtag'];
 
-  extractedContent.imageUrl = 'https://via.placeholder.com/600x400?text=Social+Media+Post+Image';
 
   extractedContent = {
     ...extractedContent,
@@ -556,7 +555,20 @@ Generate a Social Media ${socialMediaType} for ${companyName}.
   };
   const userSocialMediaLimit = socialMediaLimits[user.subscription] || 0;
   const remainingSocialMedia = userSocialMediaLimit - user.socialMediaGenerationCount;
-  const response = extractedContent;
+// Updated response
+const response = {
+  ...extractedContent,
+  contentId: content._id.toString(), // Include content ID for later updates
+};
+
+// Add imageSelectionPending flag for non-Reel content
+if (
+  !socialMediaType.includes('Reel') &&
+  !socialMediaType.includes('Story') &&
+  socialMediaType !== 'Tiktok Video'
+) {
+  response.imageSelectionPending = true;
+}
   if (process.env.NODE_ENV !== 'development' && !user.isEditEdgeUser && remainingSocialMedia === 1) {
     response.warning = `You have 1 social media generation left this week for the ${user.subscription} plan.`;
   }
