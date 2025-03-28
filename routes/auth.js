@@ -23,9 +23,6 @@ router.post('/register', async (req, res) => {
     if (existingUser) {
       return res.status(400).json({ error: 'Email already exists' });
     }
-
-    console.log('🧪 Plain password:', password);
-
     // Create new user with plain password
     const newUser = new User({
       email: email.toLowerCase(),
@@ -52,18 +49,16 @@ router.post('/register', async (req, res) => {
 
     // Save user once
     await newUser.save();
-    console.log('✅ User saved:', newUser);
-
+    
     // 🔥 Refetch from DB to avoid stale or overwritten state
     const freshUser = await User.findOne({ email: newUser.email });
-    console.log('✅ Fetched from DB for login:', freshUser);
 
     req.login(freshUser, (err) => {
       if (err) {
         console.error('❌ Error logging in after registration:', err);
         return res.status(500).json({ error: 'Failed to log in after registration' });
       }
-      console.log('✅ Logged in after registration:', freshUser);
+
       return res.json({ message: 'Registration successful', user: freshUser });
     });
   } catch (error) {
@@ -205,8 +200,6 @@ router.post('/reset-password', async (req, res) => {
 
     // Verify the reset token
     const resetTokenHash = crypto.createHash('sha256').update(token).digest('hex');
-    console.log('Reset token hash:', resetTokenHash); // Debug log
-    console.log('Stored token:', user.resetPasswordToken); // Debug log
     if (user.resetPasswordToken !== resetTokenHash) {
       return res.status(400).json({ error: 'Invalid or expired reset token' });
     }
@@ -218,15 +211,11 @@ router.post('/reset-password', async (req, res) => {
     // Hash the new password
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(newPassword, salt);
-    console.log('New hashed password:', hashedPassword); // Debug log
-
     // Update the user's password and clear the reset token
     user.password = hashedPassword;
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
     await user.save();
-    console.log('User after password reset:', user); // Debug log
-
     res.json({ message: 'Password reset successful' });
   } catch (error) {
     console.error('Error resetting password:', error);

@@ -681,7 +681,7 @@ router.delete('/:contentId', ensureAuthenticated, ensureBusinessRole('Editor'), 
 });
 
 router.post('/:contentId/comment', ensureAuthenticated, async (req, res) => {
-  console.log("POST /api/content/:contentId/comment hit with contentId:", req.params.contentId);
+  
   const { contentId } = req.params;
   const userId = req.user._id;
   const { text, imageUrl } = req.body;
@@ -698,7 +698,7 @@ router.post('/:contentId/comment', ensureAuthenticated, async (req, res) => {
       console.log("Content not found for contentId:", contentId);
       return res.status(404).json({ error: 'Content not found' });
     }
-    console.log("Content found:", content);
+    
 
     const user = await User.findById(userId).populate('businesses');
     if (!user) {
@@ -733,7 +733,7 @@ router.post('/:contentId/comment', ensureAuthenticated, async (req, res) => {
 
     await comment.save();
     const populatedComment = await Comment.findById(comment._id).populate('userId', 'email name image');
-    console.log("Comment saved:", comment._id);
+   
 
     // Optional: Send email notifications
     if (content.businessId) {
@@ -781,7 +781,7 @@ router.get('/:contentId/comments', ensureAuthenticated, async (req, res) => {
       console.log("Content not found for contentId:", contentId);
       return res.status(404).json({ error: 'Content not found' });
     }
-    console.log("Content found:", content);
+ 
 
     const user = await User.findById(userId).populate('businesses');
     if (!user) {
@@ -791,7 +791,7 @@ router.get('/:contentId/comments', ensureAuthenticated, async (req, res) => {
 
     const hasAccess = content.userId.toString() === userId.toString() || 
       user.businesses.some(b => b._id.toString() === content.businessId?.toString());
-    console.log("Has access:", hasAccess);
+
     if (!hasAccess) {
       console.log("Access denied for userId:", userId, "on contentId:", contentId);
       return res.status(403).json({ error: 'You do not have access to this content' });
@@ -802,7 +802,7 @@ router.get('/:contentId/comments', ensureAuthenticated, async (req, res) => {
       if (business) { // Only check permissions if business exists
         const isOwner = business.owner.toString() === userId.toString();
         const member = business.members.find(m => m.user.toString() === userId.toString());
-        console.log("Is owner:", isOwner, "Is member:", !!member);
+
         if (!isOwner && !member) {
           console.log("Permission denied for userId:", userId, "on businessId:", content.businessId);
           return res.status(403).json({ error: 'You do not have permission to view comments on this content' });
@@ -821,7 +821,7 @@ router.get('/:contentId/comments', ensureAuthenticated, async (req, res) => {
       .skip(skip)
       .limit(limit)
       .populate('userId', 'email name image');
-    console.log("Comments retrieved:", comments.length);
+
 
     const totalComments = await Comment.countDocuments({ contentId });
 

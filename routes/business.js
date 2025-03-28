@@ -35,8 +35,6 @@ router.get('/extract-branding', ensureAuthenticated, async (req, res) => {
   }
 
   try {
-    console.log('Processing website:', websiteURL);
-
     // Check in-memory cache
     if (cache.has(websiteURL)) {
       const extractedBranding = cache.get(websiteURL);
@@ -45,10 +43,6 @@ router.get('/extract-branding', ensureAuthenticated, async (req, res) => {
         isRegistered: false,
       });
     }
-
-    // Query Perplexity API
-    console.log('Fetching data from Perplexity for:', websiteURL);
-
     const prompt = `
       Analyze the website at ${websiteURL} and extract the following business details. If a detail is not available, use "N/A". Respond in a structured JSON format without markdown code fences:
 
@@ -78,8 +72,6 @@ router.get('/extract-branding', ensureAuthenticated, async (req, res) => {
     });
 
     const perplexityResponse = response.data.choices[0].message.content.trim();
-    console.log('Perplexity Response:', perplexityResponse);
-
     // Remove markdown code fences if present
     const jsonString = perplexityResponse.replace(/^``````$/, '');
 
@@ -228,7 +220,7 @@ router.get('/:businessId', ensureAuthenticated, async (req, res) => {
     }
 
     const rawBusiness = await Business.findById(businessId);
-    console.log("Raw business document:", rawBusiness);
+  
 
     const business = await Business.findById(businessId)
       .populate('owner', 'email name')
@@ -236,17 +228,10 @@ router.get('/:businessId', ensureAuthenticated, async (req, res) => {
     if (!business) {
       return res.status(404).json({ error: 'Business not found' });
     }
-
-    console.log("Business owner:", business.owner);
-    console.log("Business members:", business.members);
-    console.log("Request user ID:", req.user._id.toString());
-
     const isOwner = business.owner._id.toString() === req.user._id.toString();
     const isMember = business.members.some(
       (member) => member.user._id.toString() === req.user._id.toString()
     );
-    console.log("isOwner:", isOwner);
-    console.log("isMember:", isMember);
 
     if (!isOwner && !isMember) {
       return res.status(403).json({ error: 'Not authorized to view this business' });
@@ -527,8 +512,6 @@ router.post('/select-business', ensureAuthenticated, async (req, res) => {
 
     // Set the businessId in the session
     req.session.businessId = businessId;
-    console.log('Session updated with businessId:', req.session.businessId);
-
     res.json({ message: 'Business selected successfully', businessId });
   } catch (error) {
     console.error('Error selecting business:', error);

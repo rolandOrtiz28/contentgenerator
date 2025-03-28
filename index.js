@@ -190,7 +190,6 @@ app.use(xss());
 app.use(mongoSanitize());
 
 // Mount the webhook route at the very top, before any other middleware
-console.log('Mounting Stripe webhook route at /api/billing/webhook');
 app.use('/api/billing/webhook', billingWebhookRoute);
 
 // Database Connection
@@ -245,8 +244,6 @@ app.use(
 
 // Add logging to verify session middleware
 app.use((req, res, next) => {
-  console.log('Session middleware - Session ID:', req.sessionID);
-  console.log('Session middleware - Session data:', req.session);
   next();
 });
 
@@ -256,7 +253,7 @@ app.use(passport.session());
 
 // Verify Passport session setup
 app.use((req, res, next) => {
-  console.log('Passport middleware - User:', req.user);
+  console.log('Passport middleware - User:', req.user.name);
   console.log('Passport middleware - Authenticated:', req.isAuthenticated());
   next();
 });
