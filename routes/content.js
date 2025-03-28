@@ -971,13 +971,18 @@ router.patch("/select-images/:contentId", ensureAuthenticated, async (req, res) 
     content.markModified('data');
     await content.save();
 
+    // Update session data
+    req.session.generatedContent = {
+      ...req.session.generatedContent,
+      images: content.data.images,
+    };
+
     res.status(200).json({ content });
   } catch (err) {
     console.error("Error selecting images for article:", err);
     res.status(500).json({ error: "Failed to update content with images" });
   }
 });
-
 
 
 module.exports = router;

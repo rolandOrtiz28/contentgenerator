@@ -4,7 +4,7 @@ const router = express.Router();
 const OpenAI = require("openai");
 const axios = require('axios');
 const Business = require('../models/Business');
-const { suggestKeywordsWithOpenAI } = require('../utils/keywordSuggester');
+const { suggestKeywordsWithPerplexity } = require('../utils/keywordSuggester');
 const { jsonrepair } = require('jsonrepair');
 const Content = require('../models/Content'); 
 const User = require('../models/User');
@@ -76,13 +76,15 @@ router.get('/content-details', ensureAuthenticated, async (req, res) => {
 
     // Only generate suggestions if focusService is explicitly set
     if (businessDetails.focusService) {
-      const suggestions = await suggestKeywordsWithOpenAI(businessDetails);
+      const suggestions = await suggestKeywordsWithPerplexity(businessDetails);
       response.suggestedPrimaryKeywords = suggestions.primaryKeywords;
       response.suggestedSecondaryKeywords = suggestions.secondaryKeywords;
       response.suggestedKeyPoints = suggestions.keyPoints;
       response.suggestedUniqueBusinessGoal = suggestions.uniqueBusinessGoal;
       response.suggestedSpecificChallenge = suggestions.specificChallenge;
       response.suggestedPersonalAnecdote = suggestions.personalAnecdote;
+      response.suggestedCTA = suggestions.cta;
+      response.suggestedSpecificInstructions = suggestions.specificInstructions;
     }
 
     res.json({
@@ -170,7 +172,7 @@ router.post('/fetch-suggestions', ensureAuthenticated, async (req, res) => {
       companyWebsite: business.companyWebsite,
     };
 
-    const suggestions = await suggestKeywordsWithOpenAI(businessDetails);
+    const suggestions = await suggestKeywordsWithPerplexity(businessDetails);
 
     res.json({
       suggestedPrimaryKeywords: suggestions.primaryKeywords,
@@ -179,7 +181,9 @@ router.post('/fetch-suggestions', ensureAuthenticated, async (req, res) => {
       suggestedUniqueBusinessGoal: suggestions.uniqueBusinessGoal,
       suggestedSpecificChallenge: suggestions.specificChallenge,
       suggestedPersonalAnecdote: suggestions.personalAnecdote,
-      error: null,
+      suggestedCTA: suggestions.cta,
+  suggestedSpecificInstructions: suggestions.specificInstructions,
+  error: null,
     });
   } catch (error) {
     console.error('Error fetching suggestions:', error);
@@ -203,7 +207,7 @@ router.post('/generate-content-article', ensureAuthenticated, ensureBusinessRole
     uniqueBusinessGoal,
     specificChallenge,
     personalAnecdote,
-    specificInstructions, // Add specificInstructions
+    specificInstructions,
   } = req.body;
 
   try {
@@ -273,149 +277,160 @@ router.post('/generate-content-article', ensureAuthenticated, ensureBusinessRole
     };
 
     const contentPrompt = `
-    You are a top-tier SEO content strategist. Generate a highly optimized blog article as a JSON object for the provided business details. All fields must be fully AI-generated based on the input, with no hardcoded fallbacks. The content must be SEO-optimized, engaging, and at least 1200-1500 words long.
+You are a top-tier SEO content strategist. Generate a highly optimized blog article as a JSON object for the provided business details. All fields must be fully AI-generated based on the input, with no hardcoded fallbacks. The content must be SEO-optimized, engaging, and at least 1200-1500 words long.
 
-    **Business Details:**
-    - Company Name: ${businessData.companyName || 'Edit Edge Multimedia'}
-    - Description: ${businessData.description || 'A multimedia company specializing in innovative digital solutions'}
-    - Services: ${businessData.services || 'video editing, graphic design, 3D art, web development, digital marketing'}
-    - Focus Service: ${businessData.focusService || 'Digital Marketing'}
-    - Target Audience: ${businessData.targetAudience || 'e-commerce businesses and SaaS startups'}
-    - Brand Tone: ${businessData.brandTone || 'professional yet conversational'}
-    - Primary Keyword: ${keyword || 'digital marketing for e-commerce'}
-    - Secondary Keywords: ${secondaryKeywords?.join(', ') || 'real estate marketing strategies, e-commerce growth, social media marketing'}
-    - Article Length: ${articleLength || '1200-1500 words'}
-    - Key Points: ${keyPoints?.join(', ') || 'Increase visibility, Boost conversions, Enhance trust'}
-    - CTA: ${cta || 'Contact Edit Edge Multimedia to skyrocket your online presence!'}
-    - Unique Business Goal: ${uniqueBusinessGoal || 'Increase conversion rates through engaging digital strategies'}
-    - Specific Challenge: ${specificChallenge || 'Overcoming low online visibility in competitive markets'}
-    - Personal Anecdote: ${personalAnecdote || 'A client saw a 50% sales boost after our digital marketing overhaul'}
-    - Specific AI Instructions: ${specificInstructions || 'No specific instructions provided.'}
+**Business Details:**
+- Company Name: ${businessData.companyName || 'Edit Edge Multimedia'}
+- Description: ${businessData.description || 'A multimedia company specializing in innovative digital solutions'}
+- Services: ${businessData.services || 'video editing, graphic design, 3D art, web development, digital marketing'}
+- Focus Service: ${businessData.focusService || 'Digital Marketing'}
+- Target Audience: ${businessData.targetAudience || 'e-commerce businesses and SaaS startups'}
+- Brand Tone: ${businessData.brandTone || 'professional yet conversational'}
+- Primary Keyword: ${keyword || 'digital marketing for e-commerce'}
+- Secondary Keywords: ${secondaryKeywords?.join(', ') || 'real estate marketing strategies, e-commerce growth, social media marketing'}
+- Article Length: ${articleLength || '1200-1500 words'}
+- Key Points: ${keyPoints?.join(', ') || 'Increase visibility, Boost conversions, Enhance trust'}
+- CTA: ${cta || 'Contact Edit Edge Multimedia to skyrocket your online presence!'}
+- Unique Business Goal: ${uniqueBusinessGoal || 'Increase conversion rates through engaging digital strategies'}
+- Specific Challenge: ${specificChallenge || 'Overcoming low online visibility in competitive markets'}
+- Personal Anecdote: ${personalAnecdote || 'A client saw a 50% sales boost after our digital marketing overhaul'}
+- Specific AI Instructions: ${specificInstructions || 'No specific instructions provided.'}
 
-    **SEO Guidelines:**
-    - Use the primary keyword ("${keyword || 'digital marketing for e-commerce'}") 5-7 times naturally across the article, including:
-      - Within the first 100 words of the introduction.
-      - At least 2-3 times in the body (sections).
-      - In at least one subheading.
-    - Incorporate secondary keywords ("${secondaryKeywords?.join(', ') || 'real estate marketing strategies, e-commerce growth, social media marketing'}") 2-3 times each where relevant.
-    - Optimize for Google Featured Snippets with concise, question-based subheadings and bullet points.
-    - Mention the company name 3-5 times naturally.
-    - Include 3-5 internal links (e.g., /services/[focus-service], /about, /contact).
-    - Ensure readability: Use a conversational tone, short sentences, and bullet points where applicable.
-    - Add image suggestions with SEO-optimized alt text (e.g., "Digital marketing infographic for e-commerce growth").
+**SEO Guidelines:**
+- Use the primary keyword ("${keyword || 'digital marketing for e-commerce'}") 5-7 times naturally across the article, including:
+  - Within the first 100 words of the introduction.
+  - At least 2-3 times in the body (sections).
+  - In at least one subheading.
+- Incorporate secondary keywords ("${secondaryKeywords?.join(', ') || 'real estate marketing strategies, e-commerce growth, social media marketing'}") 2-3 times each where relevant.
+- Optimize for Google Featured Snippets with concise, question-based subheadings and bullet points.
+- Mention the company name 3-5 times naturally.
+- Include 3-5 internal links (e.g., /services/[focus-service], /about, /contact).
+- Ensure readability: Use a conversational tone, short sentences, and bullet points where applicable.
+- Add image suggestions with SEO-optimized alt text (e.g., "Digital marketing infographic for e-commerce growth").
 
-    **Specific AI Instructions:**
-    - Follow the specific instructions provided: "${specificInstructions || 'No specific instructions provided.'}"
-    - If specific instructions are provided, ensure the content structure adheres to them (e.g., "the content must start with a question, followed by a problem of the focus service, then how we solve that problem").
+**Specific AI Instructions:**
+- Follow the specific instructions provided: "${specificInstructions || 'No specific instructions provided.'}"
+- If specific instructions are provided, ensure the content structure adheres to them (e.g., "the content must start with a question, followed by a problem of the focus service, then how we solve that problem").
 
-    **Output Format (JSON):**
+**Output Format (JSON):**
+{
+  "title": "SEO-optimized title (under 60 chars) with primary keyword",
+  "metaDescription": "150-160 char SEO meta description with primary keyword",
+  "proposedUrl": "/[focus-service]-[target-audience]-[secondary-keyword], e.g., /digital-marketing-ecommerce-growth",
+  "introduction": "250-300 word intro addressing the specific challenge, using primary keyword in first 100 words",
+  "sections": [
     {
-      "title": "SEO-optimized title (under 60 chars) with primary keyword",
-      "metaDescription": "150-160 char SEO meta description with primary keyword",
-      "proposedUrl": "/[focus-service]-[target-audience]-[secondary-keyword], e.g., /digital-marketing-ecommerce-growth",
-      "introduction": "250-300 word intro addressing the specific challenge, using primary keyword in first 100 words",
-      "sections": [
-        {
-          "heading": "H2 with primary or secondary keyword",
-          "subheadings": ["H3 with keyword or question", "H3 with keyword or question"],
-          "content": ["300-400 words with keyword usage, stats, or examples", "300-400 words with keyword usage"]
-        },
-        {
-          "heading": "H2 targeting secondary keyword or real-world example",
-          "subheadings": ["H3 with actionable tip", "H3 with data insight"],
-          "content": ["300-400 words with case study or anecdote", "300-400 words with bullet points"]
-        }
-      ],
-      "keyTakeaways": ["Point 1 with keyword", "Point 2 with keyword", "Point 3"],
-      "faqs": [
-        {"question": "Question with primary keyword", "answer": "150-200 word answer with keyword"},
-        {"question": "Question with secondary keyword", "answer": "150-200 word answer with keyword"},
-        {"question": "Conversational question", "answer": "150-200 word answer"},
-        {"question": "Conversational question", "answer": "150-200 word answer"}
-      ],
-      "conclusion": "250-300 word conclusion reinforcing focus service, with primary keyword and CTA",
-      "internalLinks": ["/services/[focus-service]", "/about", "/contact", "/blog/[related-topic]"],
-      "schemaMarkup": "Valid JSON-LD string combining Article and FAQPage schema, with escaped quotes",
-      "images": [
-        {"url": "/images/[descriptive-name].jpg", "altText": "Primary keyword + descriptive text"}
-      ]
+      "heading": "H2 with primary or secondary keyword",
+      "subheadings": ["H3 with keyword or question", "H3 with keyword or question"],
+      "content": ["300-400 words with keyword usage, stats, or examples", "300-400 words with keyword usage"]
+    },
+    {
+      "heading": "H2 targeting secondary keyword or real-world example",
+      "subheadings": ["H3 with actionable tip", "H3 with data insight"],
+      "content": ["300-400 words with case study or anecdote", "300-400 words with bullet points"]
     }
+  ],
+  "keyTakeaways": ["Point 1 with keyword", "Point 2 with keyword", "Point 3"],
+  "faqs": [
+    {"question": "Question with primary keyword", "answer": "150-200 word answer with keyword"},
+    {"question": "Question with secondary keyword", "answer": "150-200 word answer with keyword"},
+    {"question": "Conversational question", "answer": "150-200 word answer"},
+    {"question": "Conversational question", "answer": "150-200 word answer"}
+  ],
+  "conclusion": "250-300 word conclusion reinforcing focus service, with primary keyword and CTA",
+  "internalLinks": ["/services/[focus-service]", "/about", "/contact", "/blog/[related-topic]"],
+  "schemaMarkup": "Valid JSON-LD string for Article schema, with escaped quotes",
+  "images": []
+}
 
-    **Structure:**
-    1. Introduction: Address the specific challenge with primary keyword early, following the specific AI instructions if provided.
-    2. Section 1: How [Focus Service] Drives [Target Audience] Success (keyword-rich).
-    3. Section 2: Optimizing [Secondary Keyword] for Growth (e.g., Social Media Marketing).
-    4. Section 3: Real-World Success: Case Study (use personal anecdote).
-    5. Section 4: Tools and Strategies for [Focus Service] (data-driven insights).
-    6. Conclusion: Reinforce benefits with CTA.
-    7. Key Takeaways: Bullet points with keywords.
-    8. FAQs: 4 keyword-rich, conversational questions.
-    9. Schema Markup: Article + FAQPage schema.
-    10. Images: Suggest 1-2 visuals with alt text.
+**Structure:**
+1. Introduction: Address the specific challenge with primary keyword early, following the specific AI instructions if provided.
+2. Section 1: How [Focus Service] Drives [Target Audience] Success (keyword-rich).
+3. Section 2: Optimizing [Secondary Keyword] for Growth (e.g., Social Media Marketing).
+4. Section 3: Real-World Success: Case Study (use personal anecdote).
+5. Section 4: Tools and Strategies for [Focus Service] (data-driven insights).
+6. Conclusion: Reinforce benefits with CTA.
+7. Key Takeaways: Bullet points with keywords.
+8. FAQs: 4 keyword-rich, conversational questions.
+9. Schema Markup: Article schema only.
+10. Images: Leave the "images" array empty.
 
-    **Instructions:**
-    - Return a valid JSON object with no backticks, markdown, or extra text.
-    - Use straight quotes (") and escape all internal quotes with \\ (e.g., "She said \\"yes\\"").
-    - Do not use markdown formatting (e.g., *italics*, **bold**) in any field; use plain text instead.
-    - Ensure all fields, including "schemaMarkup", are properly formatted as valid JSON strings with escaped quotes.
-    - Ensure "schemaMarkup" is a complete and valid JSON-LD string, properly closed with all braces (e.g., "{\\"@context\\": \\"https://schema.org\\", ...}").
-    - For the "schemaMarkup" field, include both Article and FAQPage schemas. Ensure all nested objects (e.g., "faqPage", "mainEntity") are properly structured with correct syntax, including quotes around all keys and values, and proper closing of all braces.
-    - In the "schemaMarkup" field, ensure the "faqPage.mainEntity" array contains 4 valid Question objects, each with a non-empty "name" field (the question text) and an "acceptedAnswer" object with non-empty "@type" (must be "Answer") and "text" fields (the answer text). Do not include empty or placeholder fields (e.g., "name": "", "text": "").
-    - Ensure there are no trailing commas in any JSON object or array.
-    - Ensure content is 1200-1500 words total across sections.
-    - Include stats, examples, or step-by-step tips to add depth.
-    - "schemaMarkup" must be a single-line string with escaped quotes, e.g., "{\\"@context\\": \\"https://schema.org\\"}".
-    - Add an "images" array with at least one image suggestion.
-    `;
-
-    const contentResponse = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [{ role: 'user', content: contentPrompt }],
-      max_tokens: 4000,
-      temperature: 0.6,
-      presence_penalty: 0.5,
-      frequency_penalty: 0.5,
-    });
-
-    let rawContent = contentResponse.choices[0].message.content.trim();
-    console.log('Raw AI Response:', rawContent);
-
-    rawContent = manualFixJson(rawContent);
+**Instructions:**
+- Return a valid JSON object with no backticks, markdown, or extra text.
+- Use straight quotes (") and escape all internal quotes with \\ (e.g., "She said \\"yes\\"").
+- Do not use markdown formatting (e.g., *italics*, **bold**) in any field; use plain text instead.
+- Ensure all fields, including "schemaMarkup", are properly formatted as valid JSON strings with escaped quotes.
+- Ensure "schemaMarkup" is a complete and valid JSON-LD string for Article schema only, properly closed with all braces (e.g., "{\\"@context\\": \\"https://schema.org\\", ...}").
+- Ensure there are no trailing commas in any JSON object or array.
+- Ensure content is 1200-1500 words total across sections.
+- Include stats, examples, or step-by-step tips to add depth.
+- "schemaMarkup" must be a single-line string with escaped quotes, e.g., "{\\"@context\\": \\"https://schema.org\\"}".
+- Set the "images" array to an empty array: "images": [].
+`;
 
     let generatedContent;
-    try {
-      let repairedJson;
+    let attempts = 0;
+    const maxAttempts = 3;
+
+    while (attempts < maxAttempts) {
       try {
-        repairedJson = jsonrepair(rawContent);
-      } catch (repairError) {
-        console.error('JSON Repair Error:', repairError);
-        throw new Error('Unable to repair JSON response');
-      }
-      generatedContent = JSON.parse(repairedJson);
-    } catch (error) {
-      console.error('JSON Parsing Failed:', error);
-      generatedContent = {
-        title: "Fallback Article Title",
-        metaDescription: "This is a fallback article due to generation issues.",
-        proposedUrl: "/fallback-article",
-        introduction: "We encountered an issue generating the full article. Please try again later.",
-        sections: [
-          {
-            heading: "Section 1",
-            subheadings: ["Subheading 1", "Subheading 2"],
-            content: ["This is a fallback section.", "Please try generating the article again."]
+        const contentResponse = await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [{ role: 'user', content: contentPrompt }],
+          max_tokens: 3500, // Reduced to avoid truncation
+          temperature: 0.6,
+          presence_penalty: 0.5,
+          frequency_penalty: 0.5,
+        });
+
+        let rawContent = contentResponse.choices[0].message.content.trim();
+        console.log('Raw AI Response:', rawContent);
+
+        rawContent = manualFixJson(rawContent);
+
+        let repairedJson;
+        try {
+          repairedJson = jsonrepair(rawContent);
+        } catch (repairError) {
+          console.error('JSON Repair Error:', repairError);
+          attempts++;
+          if (attempts === maxAttempts) {
+            throw new Error('Unable to repair JSON response after multiple attempts');
           }
-        ],
-        keyTakeaways: ["Fallback point 1", "Fallback point 2", "Fallback point 3"],
-        faqs: [
-          { question: "What happened?", answer: "There was an issue generating the article." },
-          { question: "What should I do?", answer: "Please try again later." }
-        ],
-        conclusion: "We apologize for the inconvenience. Contact support if the issue persists.",
-        internalLinks: ["/about", "/contact"],
-        schemaMarkup: "{\"@context\": \"https://schema.org\", \"@type\": \"Article\", \"headline\": \"Fallback Article Title\", \"description\": \"This is a fallback article due to generation issues.\"}",
-        images: []
-      };
+          continue; // Retry the OpenAI request
+        }
+
+        generatedContent = JSON.parse(repairedJson);
+        break; // If parsing succeeds, exit the loop
+      } catch (error) {
+        console.error('Attempt', attempts + 1, 'failed:', error);
+        attempts++;
+        if (attempts === maxAttempts) {
+          console.error('JSON Parsing Failed after all attempts:', error);
+          generatedContent = {
+            title: "Fallback Article Title",
+            metaDescription: "This is a fallback article due to generation issues.",
+            proposedUrl: "/fallback-article",
+            introduction: "We encountered an issue generating the full article. Please try again later.",
+            sections: [
+              {
+                heading: "Section 1",
+                subheadings: ["Subheading 1", "Subheading 2"],
+                content: ["This is a fallback section.", "Please try generating the article again."]
+              }
+            ],
+            keyTakeaways: ["Fallback point 1", "Fallback point 2", "Fallback point 3"],
+            faqs: [
+              { question: "What happened?", answer: "There was an issue generating the article." },
+              { question: "What should I do?", answer: "Please try again later." }
+            ],
+            conclusion: "We apologize for the inconvenience. Contact support if the issue persists.",
+            internalLinks: ["/about", "/contact"],
+            schemaMarkup: "{\"@context\": \"https://schema.org\", \"@type\": \"Article\", \"headline\": \"Fallback Article Title\", \"description\": \"This is a fallback article due to generation issues.\"}",
+            images: []
+          };
+        }
+      }
     }
 
     generatedContent.sections = generatedContent.sections.map(section => {
@@ -482,7 +497,6 @@ router.post('/generate-content-article', ensureAuthenticated, ensureBusinessRole
     const response = {
       ...generatedContent,
       contentId: content._id.toString(),
-      imageSelectionPending: true, // Always true for articles
       redirect: '/blog-article/generated-article'
     };
     if (process.env.NODE_ENV !== 'development' && !user.isEditEdgeUser && remainingArticles === 1) {

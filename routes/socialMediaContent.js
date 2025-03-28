@@ -71,11 +71,11 @@ router.get('/content-details', ensureAuthenticated, async (req, res) => {
       targetAudience: business.targetAudience,
       brandTone: business.brandTone,
       socialMediaType: business.socialMediaType || 'Facebook Post',
-      purpose: business.purpose || 'Promote',
+      goal: business.goal || 'Generate Leads',
       topic: business.topic || '',
       contentPillar: business.contentPillar || 'Educate',
       keyMessage: business.keyMessage || '',
-      adDetails: business.adDetails || '',
+      specificInstructions: business.specificInstructions || '',
     };
 
     const response = { business: businessDetails };
@@ -85,7 +85,7 @@ router.get('/content-details', ensureAuthenticated, async (req, res) => {
       const socialMediaSuggestions = await suggestSocialMediaDetails(businessDetails);
       response.socialMediaSuggestions = {
         suggestedKeyMessages: socialMediaSuggestions.suggestedKeyMessages,
-        suggestedAdDetails: socialMediaSuggestions.suggestedAdDetails,
+        suggestedSpecificInstructions: socialMediaSuggestions.suggestedSpecificInstructions,
       };
     }
 
@@ -100,7 +100,7 @@ router.get('/content-details', ensureAuthenticated, async (req, res) => {
 });
 
 router.post('/fetch-suggestions', ensureAuthenticated, async (req, res) => {
-  const { businessId, focusService } = req.body;
+  const { businessId, focusService, socialMediaType, goal, contentPillar } = req.body;
 
   if (!businessId || !focusService) {
     return res.status(400).json({ error: 'Business ID and focus service are required' });
@@ -112,7 +112,6 @@ router.post('/fetch-suggestions', ensureAuthenticated, async (req, res) => {
       return res.status(404).json({ error: 'Business not found' });
     }
 
-    // Update the business with the new focusService
     business.focusService = focusService;
     await business.save();
 
@@ -123,12 +122,12 @@ router.post('/fetch-suggestions', ensureAuthenticated, async (req, res) => {
       focusService: focusService,
       targetAudience: business.targetAudience,
       brandTone: business.brandTone,
-      socialMediaType: business.socialMediaType || 'Facebook Post',
-      purpose: business.purpose || 'Promote',
+      socialMediaType: socialMediaType || business.socialMediaType || 'Facebook Post',
+      goal: business.goal || 'Generate Leads', // Updated from purpose
       topic: business.topic || '',
-      contentPillar: business.contentPillar || 'Educate',
+      contentPillar: contentPillar || 'Educate', // Added contentPillar
       keyMessage: business.keyMessage || '',
-      adDetails: business.adDetails || '',
+      specificInstructions: business.specificInstructions || '',
     };
 
     const socialMediaSuggestions = await suggestSocialMediaDetails(businessDetails);
@@ -136,7 +135,7 @@ router.post('/fetch-suggestions', ensureAuthenticated, async (req, res) => {
     res.json({
       socialMediaSuggestions: {
         suggestedKeyMessages: socialMediaSuggestions.suggestedKeyMessages,
-        suggestedAdDetails: socialMediaSuggestions.suggestedAdDetails,
+        suggestedSpecificInstructions: socialMediaSuggestions.suggestedSpecificInstructions,
       },
       error: null,
     });
@@ -157,7 +156,7 @@ router.post('/generate-content-social', ensureAuthenticated, ensureBusinessRole(
     focusService,
     socialMediaType,
     brandTone,
-    purpose,
+    goal,
     topic,
     contentPillar,
     keyMessage,
@@ -226,7 +225,7 @@ router.post('/generate-content-social', ensureAuthenticated, ensureBusinessRole(
       focusService: business.focusService || focusService || business.services.split(',')[0].trim(),
       socialMediaType: socialMediaType || 'Facebook Post',
       brandTone: business.brandTone || brandTone || 'professional',
-      purpose: purpose || 'Promote',
+      goal: goal || 'Generate Leads',
       topic: topic || 'Untitled Topic',
       contentPillar: contentPillar || 'Educate',
       keyMessage: keyMessage || 'Highlight our services',
@@ -252,7 +251,7 @@ async function generateSocialMediaContent(req, res, data, business, user) {
     focusService,
     socialMediaType,
     brandTone,
-    purpose,
+    goal,
     topic,
     contentPillar,
     keyMessage,
@@ -371,7 +370,7 @@ Generate a Social Media ${socialMediaType} for ${companyName}.
   - Services: ${services || 'General services'}
   - Focus Product/Service: ${focusService ? focusService : 'All services'}
   - Target Audience: ${targetAudience || 'General audience'}
-  - Purpose: ${purpose || 'Promote'}
+  - Goal: ${goal || 'Genearate Leads'}
   - Details: ${adDetails || 'No additional details'}
 - Specific AI Instructions: ${specificInstructions || 'No specific instructions provided.'}
 
