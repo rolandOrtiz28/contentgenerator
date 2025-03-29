@@ -1,5 +1,34 @@
 require("dotenv").config();
 const express = require("express");
+const app = express();
+const cors = require("cors");
+
+app.use(cors({
+  origin: (origin, callback) => {
+    const allowedOrigins = [
+      "http://localhost:8080",
+      "https://content.editedgemultimedia.com",
+      "https://app-aagi02dfpgs.canva-apps.com",
+      "https://ai.editedgemultimedia.com"
+    ];
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  credentials: true,
+}));
+
+app.options('*', cors());   
+
+app.use((req, res, next) => {
+  res.on('finish', () => {
+    console.log('Response Headers:', res.getHeaders());
+  });
+  next();
+});
+
 const bodyParser = require("body-parser");
 const OpenAI = require("openai");
 const session = require("express-session");
@@ -9,7 +38,7 @@ const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const xss = require("xss-clean");
 const mongoSanitize = require("express-mongo-sanitize");
-const cors = require("cors");
+
 const passport = require('passport');
 
 const billingWebhookRoute = require('./routes/billing-webhook');
@@ -24,7 +53,7 @@ const imageRoutes = require('./routes/imageRoutes');
 
 require('./config/passport'); // Initialize Passport
 
-const app = express();
+
 const PORT = process.env.PORT || 3000;
 
 const secret = process.env.SESSION_SECRET || "default-secret-please-change-me";
@@ -32,23 +61,8 @@ const dbUrl = process.env.DB_URL;
 // || "mongodb://127.0.0.1:27017/aicontentgenerator"
 const isProduction = process.env.NODE_ENV === "production";
 
-// Enable CORS
-app.use(cors({
-  origin: (origin, callback) => {
-    const allowedOrigins = [
-      "http://localhost:8080",
-      "https://content.editedgemultimedia.com",
-      "https://app-aagi02dfpgs.canva-apps.com",
-      "https://ai.editedgemultimedia.com" 
-    ];
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error("Not allowed by CORS"));
-    }
-  },
-  credentials: true,
-}));
+
+
 
 // Security Headers (Helmet)
 const frameSrcUrls = [
