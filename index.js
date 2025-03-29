@@ -267,8 +267,8 @@ app.use(passport.session());
 
 // Verify Passport session setup
 app.use((req, res, next) => {
-  console.log('Passport middleware - User:', req.user.name);
-  console.log('Passport middleware - Authenticated:', req.isAuthenticated());
+  console.log('Passport middleware - User:', req.user?.name || 'Not Logged In');
+  console.log('Passport middleware - Authenticated:', req.isAuthenticated?.() || false);
   next();
 });
 
