@@ -1,32 +1,7 @@
-const axios = require("axios");
-
-const perplexityApi = axios.create({
-  baseURL: "https://api.perplexity.ai",
-  headers: {
-    Authorization: `Bearer ${process.env.PERPLEXITY_API_KEY}`,
-    "Content-Type": "application/json",
-  },
-});
+require("dotenv").config();
+const { getSuggestionsWithFallback } = require("./suggestionFetcher");
 
 const cache = new Map();
-
-const fetchFromPerplexity = async (query) => {
-  if (cache.has(query)) return cache.get(query);
-  try {
-    const response = await perplexityApi.post("/chat/completions", {
-      model: "sonar-pro",
-      messages: [{ role: "user", content: query }],
-      max_tokens: 100,
-      temperature: 0.7,
-    });
-    const result = response.data.choices[0].message.content.trim().split("\n");
-    cache.set(query, result);
-    return result;
-  } catch (err) {
-    console.error("Perplexity Fetch Error:", err);
-    return [];
-  }
-};
 
 const suggestSocialMediaDetails = async (businessDetails) => {
   const {
@@ -50,15 +25,15 @@ const suggestSocialMediaDetails = async (businessDetails) => {
   else if (contentPillar === "Promote") adjustedTone = "bold";
 
   const hookTypes = ["shocking stat", "rhetorical question", "common myth", "quick tip", "relatable scenario"];
-  const suggestedHook = hookTypes[Math.floor(Math.random() * hookTypes.length)]; // Suggest a hook, but don't enforce it
+  const suggestedHook = hookTypes[Math.floor(Math.random() * hookTypes.length)];
 
   const goalVerb = (goal || "Generate Leads").toLowerCase();
   const pillarVerbMap = { Educate: "educating", Entertain: "entertaining", Inspire: "inspiring", Promote: "promoting" };
   const pillarVerb = pillarVerbMap[contentPillar] || "educating";
 
   const trendQuery = `What are the top-performing ${socialMediaType} formats to ${goalVerb} in ${effectiveFocusService} for ${targetAudience} audiences in 2025?`;
-  const trendInsights = await fetchFromPerplexity(trendQuery);
-  const format = trendInsights[0]?.length > 10 ? trendInsights[0] : "simple, visual-first post";
+  const trendInsights = await getSuggestionsWithFallback(trendQuery);
+  const format = trendInsights.text?.split("\n")[0] || "simple, visual-first post";
 
   const prompt = `
 You are a social media strategist. Based on the business information and selected content configuration below, generate the following:
@@ -86,70 +61,69 @@ Respond in plain text with exactly 2 sections:
 "Key Messages:" followed by the 3 ideas, and "Specific AI Instruction:" followed by 1 sentence.
 `;
 
+  console.log("Final Perplexity Prompt:\n", prompt);
 
-
-console.log("Final Perplexity Prompt:\n", prompt);
   try {
-    const response = await perplexityApi.post("/chat/completions", {
-      model: "sonar-pro",
-      messages: [
-        { role: "system", content: "Generate social media suggestions. Respond in plain text only." },
-        { role: "user", content: prompt },
-      ],
-      max_tokens: 150,
-      temperature: 0.7,
-    });
-    console.log("Raw Perplexity Response:\n", response.data.choices[0].message.content);
-    const lines = response.data.choices[0].message.content.split("\n").filter((line) => line.trim());
+    const result = await getSuggestionsWithFallback(prompt);
+    console.log(`Suggestions from: ${result.source}`);
+    const lines = result.text.split("\n").filter((line) => line.trim());
 
-    // Updated extract function to handle numbered list format
-    const extract = (label) => {
-      const index = lines.findIndex((line) =>
-        line.toLowerCase().startsWith(label.toLowerCase())
-      );
-      if (index === -1) return [];
-    
-      const raw = lines[index];
-      const cleaned = raw.split(":")[1] || raw.split("–")[1] || raw.split("-")[1];
-      if (!cleaned) return [];
-    
-      if (cleaned.includes(",")) {
-        return cleaned.split(",").map((item) => item.trim()).filter(Boolean);
-      }
-    
-      // fallback if numbered format below the line
+    // Flexible extraction for Key Messages
+    const extractKeyMessages = () => {
+      const startIndex = lines.findIndex((line) => line.toLowerCase().startsWith("key messages:"));
+      if (startIndex === -1) return [];
       const messages = [];
-      for (let i = index + 1; i < lines.length; i++) {
+      for (let i = startIndex + 1; i < lines.length; i++) {
         const line = lines[i].trim();
-        if (/^\d+\.\s/.test(line)) {
-          messages.push(line.replace(/^\d+\.\s*/, "").trim());
-        } else {
-          break;
+        // Handle both bullet points (-) and numbered items (1., 2., etc.)
+        if (line.startsWith("-") || /^\d+\./.test(line)) {
+          const cleaned = line.replace(/^[-]|\d+\./, "").trim();
+          if (cleaned) messages.push(cleaned);
+        } else if (line.toLowerCase().startsWith("specific ai instruction:")) {
+          break; // Stop at next section
         }
       }
-      return messages;
+      return messages.slice(0, 3); // Ensure exactly 3 messages
     };
 
-    // Updated extractSingle function to handle single-line instruction
-    const extractSingle = (label) => {
-      const index = lines.findIndex((line) =>
-        line.toLowerCase().startsWith(label.toLowerCase())
-      );
+    // Flexible extraction for Specific AI Instruction
+    const extractSpecificInstruction = () => {
+      const index = lines.findIndex((line) => line.toLowerCase().startsWith("specific ai instruction:"));
       if (index === -1) return "";
-    
       const raw = lines[index];
-      const cleaned = raw.split(":")[1] || raw.split("–")[1] || raw.split("-")[1];
-      return cleaned ? cleaned.trim() : "";
+      // Extract everything after the colon, or take the next line if colon is empty
+      const afterColon = raw.split(":")[1]?.trim();
+      return afterColon || (lines[index + 1] ? lines[index + 1].trim() : "");
     };
 
-    return {
-      suggestedKeyMessages: extract("Key Messages:"),
-      suggestedSpecificInstructions: extractSingle("Specific AI Instruction:"),
-      suggestedHook: extractSingle("Suggested Hook:"),
+    const keyMessages = extractKeyMessages();
+    const specificInstruction = extractSpecificInstruction();
+
+    // Fallback if parsing fails
+    if (keyMessages.length === 0 || !specificInstruction) {
+      console.warn("Parsing failed, returning defaults");
+      return {
+        suggestedKeyMessages: ["Boost your online presence.", "Engage your audience.", "Drive more leads."],
+        suggestedSpecificInstructions: `Write a ${socialMediaType} post for ${goal} using ${adjustedTone} tone.`,
+        suggestedHook,
+      };
+    }
+
+    const suggestions = {
+      suggestedKeyMessages: keyMessages,
+      suggestedSpecificInstructions: specificInstruction,
+      suggestedHook,
     };
+
+    console.log("Parsed suggestions:", suggestions);
+    return suggestions;
   } catch (err) {
-    console.error("Perplexity Suggestion Error:", err);
-    return { suggestedKeyMessages: [], suggestedSpecificInstructions: "", suggestedHook: "" };
+    console.error("Suggestion Fetch Error:", err.message);
+    return {
+      suggestedKeyMessages: ["Boost your online presence.", "Engage your audience.", "Drive more leads."],
+      suggestedSpecificInstructions: `Write a ${socialMediaType} post for ${goal} using ${adjustedTone} tone.`,
+      suggestedHook,
+    };
   }
 };
 

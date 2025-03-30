@@ -10,33 +10,13 @@ const User = require('../models/User');
 const { ensureAuthenticated } = require('../middleware/auth');
 const { ensureBusinessRole } = require('../middleware/businessAccess');
 const removeMarkdown = require('remove-markdown');
+const { logAndEmitError } = require("../socket");
+const { getSuggestionsWithFallback } = require("../utils/suggestionFetcher");
+
 
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const perplexityApi = axios.create({
-  baseURL: "https://api.perplexity.ai",
-  headers: { Authorization: `Bearer ${process.env.PERPLEXITY_API_KEY}`, "Content-Type": "application/json" },
-});
 
-const cache = new Map();
-
-const fetchFromPerplexity = async (query) => {
-  if (cache.has(query)) return cache.get(query);
-  try {
-    const response = await perplexityApi.post("/chat/completions", {
-      model: "sonar-pro",
-      messages: [{ role: "user", content: query }],
-      max_tokens: 100,
-      temperature: 0.7,
-    });
-    const result = response.data.choices[0].message.content.trim().split("\n");
-    cache.set(query, result);
-    return result;
-  } catch (err) {
-    console.error("Perplexity Fetch Error:", err);
-    return [];
-  }
-};
 
 // Keep this for backward compatibility, but we'll update the frontend to use /businesses
 router.get("/branding-social", async (req, res) => {
@@ -44,7 +24,7 @@ router.get("/branding-social", async (req, res) => {
     const businesses = await Business.find({}, 'companyName description services focusService targetAudience brandTone socialMediaType hasWebsite companyWebsite');
     res.json({ businesses, error: null });
   } catch (error) {
-    console.error("Error fetching businesses:", error);
+    logAndEmitError("Branding", error.message, error.stack);
     res.status(500).json({ businesses: [], error: "Failed to load businesses." });
   }
 });
@@ -107,7 +87,7 @@ router.get('/content-details', ensureAuthenticated, async (req, res) => {
       error: null,
     });
   } catch (error) {
-    console.error('Error fetching business details:', error);
+    logAndEmitError("Content Details", error.message, error.stack);
     res.status(500).json({ error: 'Failed to fetch business details' });
   }
 });
@@ -120,7 +100,13 @@ router.post('/fetch-suggestions', ensureAuthenticated, async (req, res) => {
   }
 
   try {
-    const business = await Business.findOne({ _id: businessId, owner: req.user._id });
+    const business = await Business.findOne({
+      _id: businessId,
+      $or: [
+        { owner: req.user._id },
+        { 'members.user': req.user._id },
+      ],
+    });
     if (!business) {
       return res.status(404).json({ error: 'Business not found' });
     }
@@ -153,7 +139,7 @@ router.post('/fetch-suggestions', ensureAuthenticated, async (req, res) => {
       error: null,
     });
   } catch (error) {
-    console.error('Error fetching suggestions:', error);
+    logAndEmitError("Fetch-suggestion", error.message, error.stack);
     res.status(500).json({ error: 'Failed to fetch suggestions' });
   }
 });
@@ -242,7 +228,7 @@ router.post("/generate-content-social", ensureAuthenticated, ensureBusinessRole(
     console.log("Calling generateSocialMediaContent with data:", businessData);
     await generateSocialMediaContent(req, res, businessData, business, user, userSocialMediaLimit);
   } catch (error) {
-    console.error("Error in generate-content-social route:", error.message, error.stack);
+    logAndEmitError("Error in generate-content-social route:", error.message, error.stack);
     res.status(500).json({ error: "Error processing request.", details: error.message });
   }
 });
@@ -314,15 +300,23 @@ async function generateSocialMediaContent(req, res, data, business, user, userSo
     const selectedHook = hook || keyMessage || "quick tip";
     console.log("Selected hook:", selectedHook);
 
-    console.log("Fetching Perplexity trends...");
-    let trendInsights, visualTrends;
+    console.log("Fetching trend insights with fallback...");
+
+    let trendInsights = ["default format"];
+    let visualTrends = ["standard visual"];
+    
     try {
-      trendInsights = await fetchFromPerplexity(`Most engaging post formats for ${platform} in 2025`);
-      visualTrends = await fetchFromPerplexity(`Top visual styles for ${platform} in 2025`);
-    } catch (error) {
-      console.error("Perplexity API error:", error.message);
-      trendInsights = ["default format"];
-      visualTrends = ["standard visual"];
+      const trendResponse = await getSuggestionsWithFallback(`Most engaging post formats for ${platform} in 2025`);
+      trendInsights = trendResponse.text.split("\n").filter(Boolean);
+    } catch (err) {
+      console.warn("Failed to get trend insights:", err.message);
+    }
+    
+    try {
+      const visualResponse = await getSuggestionsWithFallback(`Top visual styles for ${platform} in 2025`);
+      visualTrends = visualResponse.text.split("\n").filter(Boolean);
+    } catch (err) {
+      console.warn("Failed to get visual trends:", err.message);
     }
     console.log("Perplexity trends fetched:", { trendInsights, visualTrends });
 
@@ -381,7 +375,8 @@ ${socialMediaType.includes("Reel") || socialMediaType.includes("Story") || socia
         temperature: 0.7,
       });
     } catch (error) {
-      console.error("OpenAI API error:", error.message, error.stack);
+      
+      logAndEmitError("OpenAI API error:", error.message, error.stack);
       throw new Error("Failed to generate content from OpenAI: " + error.message);
     }
     console.log("OpenAI response received:", aiResponse.choices[0].message.content);
@@ -465,7 +460,7 @@ ${socialMediaType.includes("Reel") || socialMediaType.includes("Story") || socia
     console.log("Sending response:", response);
     res.json(response);
   } catch (error) {
-    console.error("Error in generateSocialMediaContent:", error.message, error.stack);
+    logAndEmitError("Error in generateSocialMediaContent:", error.message, error.stack);
     res.status(500).json({ error: "Error generating content.", details: error.message });
   }
 }

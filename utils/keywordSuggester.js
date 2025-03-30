@@ -1,13 +1,7 @@
 // utils/suggestions.js
-const perplexityApi = require("axios").create({
-  baseURL: "https://api.perplexity.ai",
-  headers: {
-    Authorization: `Bearer ${process.env.PERPLEXITY_API_KEY}`,
-    "Content-Type": "application/json",
-  },
-});
+const { getSEOSuggestionsWithFallback } = require("./suggestionFetcher"); // Adjust path as needed
 
-const fetchFromPerplexity = async (query, options = {}) => {
+const fetchWithFallback = async (query, options = {}) => {
   const { intent, output, type, sources, topFacts, criteria } = options;
 
   const prompt = `
@@ -30,33 +24,19 @@ ${
 Respond in plain text, no markdown, with key-value pairs separated by newlines (e.g., key: value).
 `;
 
-  try {
-    const response = await perplexityApi.post("/chat/completions", {
-      model: "sonar-pro",
-      messages: [
-        {
-          role: "system",
-          content: "Provide analysis or data based on input. Use plain text, no formatting.",
-        },
-        { role: "user", content: prompt },
-      ],
-      max_tokens: 500,
-      temperature: 0.7,
-    });
+  const response = await getSEOSuggestionsWithFallback(prompt);
+  const content = response.text;
 
-    const content = response.data.choices[0].message.content.trim();
-    const lines = content.split("\n").filter((line) => line.trim());
-    const result = {};
-    lines.forEach((line) => {
-      const [key, value] = line.split(": ").map((part) => part.trim());
-      if (key && value) result[key] = value;
-    });
+  if (!content) return {};
 
-    return result;
-  } catch (err) {
-    console.error("Perplexity Fetch Error:", err);
-    return {};
-  }
+  const lines = content.split("\n").filter((line) => line.trim());
+  const result = {};
+  lines.forEach((line) => {
+    const [key, value] = line.split(": ").map((part) => part.trim());
+    if (key && value) result[key] = value;
+  });
+
+  return result;
 };
 
 const suggestKeywordsWithPerplexity = async (businessDetails) => {
@@ -117,21 +97,10 @@ Specific AI Requirement: ...
 `;
 
   try {
-    const response = await perplexityApi.post("/chat/completions", {
-      model: "sonar-pro",
-      messages: [
-        {
-          role: "system",
-          content:
-            "Provide SEO keyword suggestions based on input. Respond in strict text. No markdown formatting.",
-        },
-        { role: "user", content: prompt },
-      ],
-      max_tokens: 300,
-      temperature: 0.7,
-    });
+    const response = await getSEOSuggestionsWithFallback(prompt);
+    const content = response.text.trim();
+    const source = response.source;
 
-    const content = response.data.choices[0].message.content.trim();
     const lines = content.split("\n").filter((line) => line.trim());
 
     const extract = (label) => {
@@ -157,41 +126,62 @@ Specific AI Requirement: ...
       specificInstructions: extractSingle("Specific AI Requirement:"),
     };
 
+    // Handle empty results gracefully
+    if (!result.primaryKeywords.length && !result.secondaryKeywords.length) {
+      console.warn("No valid suggestions received from", source);
+      return {
+        primaryKeywords: [],
+        secondaryKeywords: [],
+        keyPoints: [],
+        uniqueBusinessGoal: "",
+        specificChallenge: "",
+        personalAnecdote: "",
+        cta: "",
+        specificInstructions: "",
+        competitiveData: {},
+        stats: {},
+        faqs: {},
+        snippetData: {},
+        clusters: {},
+        entities: {},
+      };
+    }
+
     const primaryKeyword = result.primaryKeywords[0] || effectiveFocusService;
 
     // Tweak 1: Competitive Research
-    const competitiveData = await fetchFromPerplexity(primaryKeyword, {
+    const competitiveData = await fetchWithFallback(primaryKeyword, {
       intent: "SERP_analysis",
       output: ["topH2s", "metaDescriptions", "snippetSummaries", "contentGaps"],
     });
     result.competitiveData = competitiveData;
 
     // Tweak 2: Real Stats
-    const stats = await fetchFromPerplexity(`latest stats on ${effectiveFocusService}`, { topFacts: 3 });
+    const stats = await fetchWithFallback(`latest stats on ${effectiveFocusService}`, { topFacts: 3 });
     result.stats = stats;
 
     // Tweak 3: Better FAQs
-    const faqs = await fetchFromPerplexity(primaryKeyword, {
+    const faqs = await fetchWithFallback(primaryKeyword, {
       type: "relatedQuestions",
       sources: ["Google", "Reddit", "Quora"],
     });
     result.faqs = faqs;
 
     // Tweak 4: Featured Snippet Optimization
-    const snippetData = await fetchFromPerplexity(primaryKeyword, { intent: "snippetAnalysis" });
+    const snippetData = await fetchWithFallback(primaryKeyword, { intent: "snippetAnalysis" });
     result.snippetData = snippetData;
 
     // Tweak 5: Topic Clusters
-    const clusters = await fetchFromPerplexity(effectiveFocusService, { intent: "contentCluster" });
+    const clusters = await fetchWithFallback(effectiveFocusService, { intent: "contentCluster" });
     result.clusters = clusters;
 
     // Tweak 6: Entity Enrichment
-    const entities = await fetchFromPerplexity(`trending tools or thought leaders in ${effectiveFocusService} for 2025`);
+    const entities = await fetchWithFallback(`trending tools or thought leaders in ${effectiveFocusService} for 2025`);
     result.entities = entities;
 
     return result;
   } catch (err) {
-    console.error("Perplexity Suggestion Error:", err);
+    console.error("Suggestion Error:", err);
     return {
       primaryKeywords: [],
       secondaryKeywords: [],
@@ -211,4 +201,4 @@ Specific AI Requirement: ...
   }
 };
 
-module.exports = { suggestKeywordsWithPerplexity, fetchFromPerplexity };
+module.exports = { suggestKeywordsWithPerplexity, fetchWithFallback };

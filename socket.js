@@ -1,3 +1,4 @@
+// backend/socket.js
 let io;
 
 module.exports = {
@@ -8,7 +9,7 @@ module.exports = {
         origin: [
           "http://localhost:8080",
           "https://content.editedgemultimedia.com",
-          "https://ai.editedgemultimedia.com"
+          "https://ai.editedgemultimedia.com",
         ],
         credentials: true,
       },
@@ -27,4 +28,15 @@ module.exports = {
     if (!io) throw new Error("Socket.io not initialized!");
     return io;
   },
+  // Add emitLog function to send logs to connected clients
+  emitLog: (message) => {
+    if (io) {
+      io.emit("backendLog", { message });
+    }
+  },
+  logAndEmitError(...args) {
+    const message = args.join(" ");
+    emitLog(`ERROR: ${message}`);
+    console.error(...args);
+  }
 };

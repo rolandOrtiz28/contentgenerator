@@ -1,8 +1,10 @@
 const express = require('express');
 const router = express.Router();
-const User = require('../models/User'); // Adjust path to your User model
+const User = require('../models/User');
+const Business = require('../models/Business');
 const mongoose = require('mongoose');
 const { getIO } = require('../socket');
+const UserActivity = require('../models/UserActivity');
 
 
 // Middleware to ensure admin access
@@ -21,138 +23,181 @@ router.get('/', (req, res) => {
 });
 
 // CRUD for Users (admin managing all users)
-// Create a new user
 router.post('/users', async (req, res) => {
-    try {
-      const { email, password, name, role } = req.body;
-      const user = new User({ email, password, name, role });
-      await user.save();
-  
-      getIO().emit("userCreated", {
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        createdAt: user.createdAt,
-      });
-
-      getIO().emit("userActivity", {
-        action: "create",
-        userId: user._id,
-        name: user.name,
-        email: user.email,
-        timestamp: new Date(),
-        details: req.body,
-      });
-  
-      res.status(201).json({ message: 'User created', userId: user._id });
-    } catch (error) {
-      res.status(400).json({ error: error.message });
-    }
-  });
-
-// Read all users (admin overview)
-router.get('/users', async (req, res) => {
   try {
-    const users = await User.find()
-      .select('-password -resetPasswordToken -resetPasswordExpires') // Exclude sensitive fields
-      .populate('businesses', 'name') // Optional: adjust fields as needed
-      .populate('personalContent', 'title'); // Optional: adjust fields as needed
-    res.json(users);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+    const { email, password, name, role, subscription } = req.body;
+    const user = new User({ email, password, name, role, subscription });
+    await user.save();
 
-// Read single user by ID (admin view)
-router.get('/users/:id', async (req, res) => {
-  try {
-    const user = await User.findById(req.params.id)
-      .select('-password -resetPasswordToken -resetPasswordExpires')
-      .populate('businesses', 'name')
-      .populate('personalContent', 'title');
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json(user);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Update a user (admin edits any user)
-router.put('/users/:id', async (req, res) => {
-  try {
-    const allowedFields = {
-      email: req.body.email,
-      name: req.body.name,
-      role: req.body.role,
-      subscription: req.body.subscription,
-      stripeCustomerId: req.body.stripeCustomerId,
-      stripeSubscriptionId: req.body.stripeSubscriptionId,
-      subscriptionStatus: req.body.subscriptionStatus,
-      freeTrialUsed: req.body.freeTrialUsed,
-      isEditEdgeUser: req.body.isEditEdgeUser,
-      articleGenerationCount: req.body.articleGenerationCount,
-      socialMediaGenerationCount: req.body.socialMediaGenerationCount,
-    };
-
-    if (req.body.password) {
-      allowedFields.password = req.body.password; // Hashed by pre-save hook
-    }
-
-    const user = await User.findByIdAndUpdate(
-      req.params.id,
-      allowedFields,
-      { new: true, runValidators: true }
-    )
-      .select('-password -resetPasswordToken -resetPasswordExpires')
-      .populate('businesses', 'name')
-      .populate('personalContent', 'title');
-
-    if (!user) return res.status(404).json({ error: 'User not found' });
-
-    // 🔴 Real-time emit to all connected admins (or whoever needs it)
-    getIO().emit("userUpdated", user);
+    getIO().emit("userCreated", {
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      createdAt: user.createdAt,
+      subscription: user.subscription,
+    });
 
     getIO().emit("userActivity", {
-        action: "update",
-        userId: user._id,
-        name: user.name,
-        email: user.email,
-        timestamp: new Date(),
-        details: req.body,
-      });
-      
+      action: "create",
+      userId: user._id,
+      name: user.name,
+      email: user.email,
+      timestamp: new Date(),
+      details: req.body,
+    });
 
-    res.json({ message: 'User updated', user });
+    res.status(201).json({ message: 'User created', userId: user._id });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
 });
 
-
-// Delete a user (admin deletes any user)
-router.delete('/users/:id', async (req, res) => {
-    try {
-      const user = await User.findByIdAndDelete(req.params.id);
-      if (!user) return res.status(404).json({ error: 'User not found' });
-  
-      getIO().emit("userDeleted", { userId: req.params.id });
-
-      getIO().emit("userActivity", {
-        action: "delete",
-        userId: req.params.id,
-        name: user.name,
-        email: user.email,
-        timestamp: new Date(),
-        details: user,
+router.get('/users', async (req, res) => {
+  try {
+    const users = await User.find()
+      .select('-password -resetPasswordToken -resetPasswordExpires')
+      .populate('businesses', 'companyName') // Use 'companyName' instead of 'name'
+      .populate({
+        path: 'personalContent',
+        select: 'type data.title data.caption', // Select relevant fields
       });
-      
-  
-      res.json({ message: 'User deleted' });
-    } catch (error) {
-      res.status(500).json({ error: error.message });
+    res.json(users);
+  } catch (error) {
+    console.error("Error fetching users:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/users/:id', async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id)
+      .select('-password -resetPasswordToken -resetPasswordExpires')
+      .populate('businesses', 'companyName')
+      .populate({
+        path: 'personalContent',
+        select: 'type data.title data.caption',
+      });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json(user);
+  } catch (error) {
+    console.error("Error fetching user:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.put('/users/:id', async (req, res) => {
+  try {
+    console.log("Update user request body:", req.body);
+
+    const allowedFields = {
+      email: req.body.email,
+      name: req.body.name,
+      role: req.body.role,
+      image: req.body.image,
+      subscription: req.body.subscription,
+      stripeCustomerId: req.body.stripeCustomerId,
+      stripeSubscriptionId: req.body.stripeSubscriptionId,
+      subscriptionStatus: req.body.subscriptionStatus === 'null' ? null : req.body.subscriptionStatus,
+      freeTrialUsed: req.body.freeTrialUsed === 'true',
+      isEditEdgeUser: req.body.isEditEdgeUser === 'true',
+      articleGenerationCount: parseInt(req.body.articleGenerationCount) || 0,
+      socialMediaGenerationCount: parseInt(req.body.socialMediaGenerationCount) || 0,
+      businesses: Array.isArray(req.body.businesses) ? req.body.businesses : [],
+      personalContent: Array.isArray(req.body.personalContent) ? req.body.personalContent : [],
+    };
+
+    if (req.body.password) {
+      allowedFields.password = req.body.password;
     }
-  });
+
+    const user = await User.findByIdAndUpdate(req.params.id, allowedFields, {
+      new: true,
+      runValidators: true,
+    })
+      .select('-password -resetPasswordToken -resetPasswordExpires')
+      .populate('businesses', 'companyName')
+      .populate({
+        path: 'personalContent',
+        select: 'type data.title data.caption',
+      });
+
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    getIO().emit("userUpdated", user);
+    getIO().emit("userActivity", {
+      action: "update",
+      userId: user._id,
+      name: user.name,
+      email: user.email,
+      timestamp: new Date(),
+      details: req.body,
+    });
+
+    res.json({ message: 'User updated', user });
+  } catch (error) {
+    console.error("Error updating user:", error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+router.delete('/users/:id', async (req, res) => {
+  try {
+    const user = await User.findByIdAndDelete(req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    // Remove user from associated businesses
+    await Business.updateMany(
+      { "members.user": user._id },
+      { $pull: { members: { user: user._id } } }
+    );
+
+    getIO().emit("userDeleted", { userId: req.params.id });
+    getIO().emit("userActivity", {
+      action: "delete",
+      userId: req.params.id,
+      name: user.name,
+      email: user.email,
+      timestamp: new Date(),
+      details: user,
+    });
+
+    res.json({ message: 'User deleted' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Business Management Routes
+router.post('/businesses', async (req, res) => {
+  try {
+    const { name, userId } = req.body;
+    const business = new Business({ name, members: [{ user: userId, role: 'Admin' }] });
+    await business.save();
+
+    await User.findByIdAndUpdate(userId, { $push: { businesses: business._id } });
+
+    res.status(201).json({ message: 'Business created', business });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+router.delete('/businesses/:id', async (req, res) => {
+  try {
+    const business = await Business.findByIdAndDelete(req.params.id);
+    if (!business) return res.status(404).json({ error: 'Business not found' });
+
+    await User.updateMany(
+      { businesses: business._id },
+      { $pull: { businesses: business._id } }
+    );
+
+    res.json({ message: 'Business deleted' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 
 // SATATICS
@@ -212,35 +257,56 @@ router.get('/stats', async (req, res) => {
   });
 
   // GET /api/admin/user-activity
-router.get('/user-activity', async (req, res) => {
+  router.get('/user-activity', async (req, res) => {
     try {
-        const now = new Date();
-        let filter = {};
-        
-        const timeframe = req.query.timeframe;
-        
-        if (timeframe === "week") {
-          const sevenDaysAgo = new Date(now);
-          sevenDaysAgo.setDate(now.getDate() - 7);
-          filter.createdAt = { $gte: sevenDaysAgo };
-        } else if (timeframe === "month") {
-          const thirtyDaysAgo = new Date(now);
-          thirtyDaysAgo.setDate(now.getDate() - 30);
-          filter.createdAt = { $gte: thirtyDaysAgo };
-        }
-        
-        const users = await User.find(filter)
-          .select("name email image personalContent createdAt updatedAt")
-          .lean();
+      const now = new Date();
+      let userFilter = {};
+      let activityFilter = {};
   
-      const processedUsers = users.map(user => ({
+      const timeframe = req.query.timeframe;
+  
+      if (timeframe === "week") {
+        const sevenDaysAgo = new Date(now);
+        sevenDaysAgo.setDate(now.getDate() - 7);
+        userFilter.createdAt = { $gte: sevenDaysAgo };
+        activityFilter.timestamp = { $gte: sevenDaysAgo };
+      } else if (timeframe === "month") {
+        const thirtyDaysAgo = new Date(now);
+        thirtyDaysAgo.setDate(now.getDate() - 30);
+        userFilter.createdAt = { $gte: thirtyDaysAgo };
+        activityFilter.timestamp = { $gte: thirtyDaysAgo };
+      }
+  
+      const [users, activities] = await Promise.all([
+        User.find(userFilter)
+          .select("name email image personalContent createdAt updatedAt")
+          .lean(),
+        UserActivity.find(activityFilter)
+          .sort({ timestamp: -1 })
+          .lean(),
+      ]);
+  
+      // Group all activity logs by userId
+      const groupedActivities = {};
+      for (const log of activities) {
+        const uid = log.userId?.toString();
+        if (!groupedActivities[uid]) groupedActivities[uid] = [];
+        groupedActivities[uid].push(log);
+      }
+  
+      const processedUsers = users.map((user) => ({
+        _id: user._id.toString(), // Ensure _id is a string for consistency
         name: user.name,
-        image: user.image,
         email: user.email,
+        image: user.image,
         contentCount: user.personalContent?.length || 0,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
+        activityLogs: groupedActivities[user._id?.toString()] || [],
       }));
+  
+      // Emit to all connected clients (optional enhancement)
+      getIO().emit('userActivityUpdate', { users: processedUsers });
   
       res.json({ users: processedUsers });
     } catch (err) {
@@ -248,7 +314,6 @@ router.get('/user-activity', async (req, res) => {
       res.status(500).json({ error: "Failed to fetch user activity" });
     }
   });
-  
   
 
 module.exports = router;

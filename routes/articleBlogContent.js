@@ -4,21 +4,19 @@ const router = express.Router();
 const OpenAI = require("openai");
 const axios = require("axios");
 const Business = require("../models/Business");
-const { suggestKeywordsWithPerplexity, fetchFromPerplexity } = require("../utils/keywordSuggester");
+const { suggestKeywordsWithPerplexity, fetchWithFallback } = require("../utils/keywordSuggester"); // Updated import
 const { jsonrepair } = require("jsonrepair");
 const Content = require("../models/Content");
 const User = require("../models/User");
 const { ensureAuthenticated } = require("../middleware/auth");
 const { ensureBusinessRole } = require('../middleware/businessAccess');
-
+const { logAndEmitError } = require("../socket");
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-
-
-// In-memory cache for Perplexity results
+// In-memory cache for results
 const cache = new Map();
 
 // Step 1: Fetch businesses for the initial form
@@ -31,8 +29,6 @@ router.get("/branding-article", async (req, res) => {
     res.status(500).json({ businesses: [], error: "Failed to load businesses." });
   }
 });
-
-
 
 router.get("/content-details", ensureAuthenticated, async (req, res) => {
   const businessId = req.session.businessId;
@@ -95,7 +91,7 @@ router.get("/content-details", ensureAuthenticated, async (req, res) => {
       error: null,
     });
   } catch (error) {
-    console.error("Error fetching business details:", error);
+    logAndEmitError("Error fetching business details:", error.message, error.stack);
     res.status(500).json({ error: "Failed to fetch business details" });
   }
 });
@@ -141,7 +137,6 @@ function manualFixJson(rawContent) {
   return fixedContent;
 }
 
-
 router.post("/fetch-suggestions", ensureAuthenticated, async (req, res) => {
   const { businessId, focusService } = req.body;
 
@@ -150,9 +145,15 @@ router.post("/fetch-suggestions", ensureAuthenticated, async (req, res) => {
   }
 
   try {
-    const business = await Business.findOne({ _id: businessId, owner: req.user._id });
+    const business = await Business.findOne({
+      _id: businessId,
+      $or: [
+        { owner: req.user._id },
+        { 'members.user': req.user._id },
+      ],
+    });
     if (!business) {
-      return res.status(404).json({ error: "Business not found" });
+      return res.status(404).json({ error: 'Business not found' });
     }
 
     business.focusService = focusService;
@@ -192,7 +193,7 @@ router.post("/fetch-suggestions", ensureAuthenticated, async (req, res) => {
       error: null,
     });
   } catch (error) {
-    console.error("Error fetching suggestions:", error);
+    logAndEmitError("Error fetching suggestions:", error.message, error.stack);
     res.status(500).json({ error: "Failed to fetch suggestions" });
   }
 });
@@ -293,7 +294,7 @@ router.post(
         brandTone: business.brandTone || brandTone || "professional",
       };
 
-      // Fetch suggestions including all Perplexity data for tweaks
+      // Fetch suggestions including all data for tweaks
       const suggestions = await suggestKeywordsWithPerplexity(businessData);
 
       // Define slugify for Tweak 5 (if not already available)
@@ -442,7 +443,7 @@ Quote tools or mention experts like: [${Object.keys(suggestions.entities || {}).
           try {
             repairedJson = jsonrepair(rawContent);
           } catch (repairError) {
-            console.error("JSON Repair Error:", repairError);
+            logAndEmitError("JSON Repair Error:", repairError.message, repairError.stack);
             attempts++;
             if (attempts === maxAttempts) {
               throw new Error("Unable to repair JSON response after multiple attempts");
@@ -495,12 +496,12 @@ Quote tools or mention experts like: [${Object.keys(suggestions.entities || {}).
         }
       }
 
-      // Tweak 7: Review the Final Draft with Perplexity
-      const review = await fetchFromPerplexity(JSON.stringify(generatedContent), {
+      // Tweak 7: Review the Final Draft with Fallback (replacing fetchFromPerplexity)
+      const review = await fetchWithFallback(JSON.stringify(generatedContent), {
         intent: "critique",
         criteria: ["SEO", "E-A-T", "readability", "uniqueness"],
       });
-      console.log("Perplexity Review:", review);
+      console.log("Review (with fallback):", review);
       // Note: Applying review suggestions would require manual edits or another OpenAI call. For now, we log it.
 
       generatedContent.sections = generatedContent.sections.map((section) => {
@@ -572,7 +573,7 @@ Quote tools or mention experts like: [${Object.keys(suggestions.entities || {}).
 
       res.json(response);
     } catch (error) {
-      console.error("Error generating article:", error);
+      logAndEmitError("Error generating article:", error.message, error.stack);
       res.status(500).json({
         error: "Error generating content. Please try again.",
         details: error.message,
@@ -580,6 +581,7 @@ Quote tools or mention experts like: [${Object.keys(suggestions.entities || {}).
     }
   }
 );
+
 
 // Step 6: Save business details prompt
 router.get("/save-details-prompt", (req, res) => {

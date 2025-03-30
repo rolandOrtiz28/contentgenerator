@@ -3,6 +3,7 @@ const express = require("express");
 const app = express();
 const cors = require("cors");
 
+
 app.use(cors({
   origin: (origin, callback) => {
     const allowedOrigins = [
@@ -319,6 +320,12 @@ app.use('/api/billing', billingRoutes);
 app.use('/api/images', imageRoutes);
 app.use('/api/admin', adminRoutes);
 
+app.use("*", (req, res) => {
+  const message = `404 Not Found: ${req.method} ${req.originalUrl}`;
+  console.error(message); // This triggers emitLog
+  res.status(404).json({ error: "Not Found" });
+});
+
 // Error Handling
 app.use((err, req, res, next) => {
   console.error("❌ Server Error:", err.stack);
@@ -334,8 +341,31 @@ const server = app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
 });
 
-const io = socketServer.init(server);
+const io = require("./socket").init(server);
+const { emitLog } = require("./socket"); // Import emitLog
 
+// Override console methods to emit logs via Socket.IO
+const originalConsoleLog = console.log;
+const originalConsoleError = console.error;
+const originalConsoleWarn = console.warn;
+
+console.log = (...args) => {
+  const message = args.join(" ");
+  emitLog(message);
+  originalConsoleLog(...args);
+};
+
+console.error = (...args) => {
+  const message = args.join(" ");
+  emitLog(`ERROR: ${message}`);
+  originalConsoleError(...args);
+};
+
+console.warn = (...args) => {
+  const message = args.join(" ");
+  emitLog(`WARN: ${message}`);
+  originalConsoleWarn(...args);
+};
 // Graceful Shutdown
 process.on('SIGTERM', () => {
   console.log('SIGTERM received: closing server');

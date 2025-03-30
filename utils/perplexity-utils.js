@@ -1,3 +1,4 @@
+require("dotenv").config()
 const axios = require("axios");
 
 // In-memory cache to avoid repeat requests

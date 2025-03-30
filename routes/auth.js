@@ -8,7 +8,8 @@ const User = require('../models/User');
 const Business = require('../models/Business');
 const { sendEmail } = require('../utils/email');
 const { ensureAuthenticated } = require('../middleware/auth');
-
+const { getIO } = require('../socket');
+const UserActivity = require('../models/UserActivity');
 
 // Register a new user
 router.post('/register', async (req, res) => {
@@ -50,9 +51,27 @@ router.post('/register', async (req, res) => {
 
     // Save user once
     await newUser.save();
-    
+
     // 🔥 Refetch from DB to avoid stale or overwritten state
     const freshUser = await User.findOne({ email: newUser.email });
+
+    getIO().emit("userActivity", {
+      action: "register",
+      userId: newUser._id,
+      name: newUser.name,
+      email: newUser.email,
+      timestamp: new Date(),
+      details: req.body,
+    });
+
+    await UserActivity.create({
+      action: "register",
+      userId: newUser._id,
+      name: newUser.name,
+      email: newUser.email,
+      timestamp: new Date(),
+      details: req.body,
+    });
 
     req.login(freshUser, (err) => {
       if (err) {
@@ -79,10 +98,24 @@ router.post('/login', (req, res, next) => {
     if (!user) {
       return res.status(401).json({ error: info.message || 'Login failed' });
     }
-    req.logIn(user, (err) => {
+    req.logIn(user,async (err) => {
       if (err) {
         return res.status(500).json({ error: 'Failed to log in', details: err.message });
       }
+      getIO().emit("userActivity", {
+        action: "login",
+        userId: user._id,
+        name: user.name,
+        email: user.email,
+        timestamp: new Date(),
+      });
+      await UserActivity.create({
+        action: "login",
+        userId: user._id,
+        name: user.name,
+        email: user.email,
+        timestamp: new Date(),
+      });
       return res.json({ message: 'Login successful', user });
     });
   })(req, res, next);
@@ -111,7 +144,20 @@ router.post('/forgot-password', async (req, res) => {
     user.resetPasswordToken = resetTokenHash;
     user.resetPasswordExpires = resetTokenExpiry;
     await user.save();
-
+    getIO().emit("userActivity", {
+      action: "forgot-password",
+      userId: user._id,
+      name: user.name,
+      email: user.email,
+      timestamp: new Date(),
+    });
+    await UserActivity.create({
+      action: "forgot-password",
+      userId: user._id,
+      name: user.name,
+      email: user.email,
+      timestamp: new Date(),
+    });
     // Send reset email
     const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:8080';
     const resetLink = `${FRONTEND_URL}/reset-password?token=${resetToken}&email=${encodeURIComponent(email)}`;
@@ -178,6 +224,7 @@ router.post('/forgot-password', async (req, res) => {
     `;
 
     await sendEmail(email, subject, text, html);
+    
     res.json({ message: 'Password reset link sent to your email' });
   } catch (error) {
     console.error('Error sending password reset email:', error);
@@ -217,6 +264,20 @@ router.post('/reset-password', async (req, res) => {
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
     await user.save();
+    getIO().emit("userActivity", {
+      action: "reset-password",
+      userId: user._id,
+      name: user.name,
+      email: user.email,
+      timestamp: new Date(),
+    });
+    await UserActivity.create({
+      action: "reset-password",
+      userId: user._id,
+      name: user.name,
+      email: user.email,
+      timestamp: new Date(),
+    });
     res.json({ message: 'Password reset successful' });
   } catch (error) {
     console.error('Error resetting password:', error);
@@ -226,19 +287,52 @@ router.post('/reset-password', async (req, res) => {
 
 // Logout a user
 router.post('/logout', (req, res) => {
+  // ✅ Capture user data before logout
+  const user = req.user;
+
   req.logout((err) => {
     if (err) {
       return res.status(500).json({ error: 'Failed to log out', details: err.message });
     }
+
     req.session.destroy((err) => {
       if (err) {
         return res.status(500).json({ error: 'Failed to destroy session', details: err.message });
       }
+    
       res.clearCookie('_editEdge');
       res.json({ message: 'Logout successful' });
+    
+      // ✅ Emit + Save to DB asynchronously
+      if (user) {
+        getIO().emit("userActivity", {
+          action: "logout",
+          userId: user._id,
+          name: user.name,
+          email: user.email,
+          timestamp: new Date(),
+        });
+    
+        // ✅ Wrap await in an async IIFE
+        (async () => {
+          try {
+            await UserActivity.create({
+              action: "logout",
+              userId: user._id,
+              name: user.name,
+              email: user.email,
+              timestamp: new Date(),
+            });
+          } catch (err) {
+            console.error("❌ Failed to log logout activity:", err);
+          }
+        })();
+      }
     });
+    
   });
 });
+
 
 // Get current user
 router.get('/current-user',ensureAuthenticated, (req, res) => {
