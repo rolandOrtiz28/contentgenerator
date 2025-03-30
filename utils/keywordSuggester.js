@@ -7,6 +7,58 @@ const perplexityApi = require("axios").create({
   },
 });
 
+const fetchFromPerplexity = async (query, options = {}) => {
+  const { intent, output, type, sources, topFacts, criteria } = options;
+
+  const prompt = `
+You are an SEO and content analysis expert. Based on the query "${query}", provide the following:
+${
+  intent === "SERP_analysis"
+    ? `Analyze the top-ranking pages. Return: ${output.join(", ")}`
+    : intent === "snippetAnalysis"
+    ? "Analyze the featured snippet. Return its format (paragraph, list, table) and triggering question."
+    : intent === "contentCluster"
+    ? "Suggest related subtopics for a content cluster and internal linking opportunities."
+    : intent === "critique"
+    ? `Critique this content for: ${criteria.join(", ")}. Suggest improvements.`
+    : type === "relatedQuestions"
+    ? `Find real user questions from ${sources.join(", ")}.`
+    : topFacts
+    ? `Return the top ${topFacts} recent stats or facts with sources.`
+    : "List trending tools or thought leaders for 2025 related to the query."
+}
+Respond in plain text, no markdown, with key-value pairs separated by newlines (e.g., key: value).
+`;
+
+  try {
+    const response = await perplexityApi.post("/chat/completions", {
+      model: "sonar-pro",
+      messages: [
+        {
+          role: "system",
+          content: "Provide analysis or data based on input. Use plain text, no formatting.",
+        },
+        { role: "user", content: prompt },
+      ],
+      max_tokens: 500,
+      temperature: 0.7,
+    });
+
+    const content = response.data.choices[0].message.content.trim();
+    const lines = content.split("\n").filter((line) => line.trim());
+    const result = {};
+    lines.forEach((line) => {
+      const [key, value] = line.split(": ").map((part) => part.trim());
+      if (key && value) result[key] = value;
+    });
+
+    return result;
+  } catch (err) {
+    console.error("Perplexity Fetch Error:", err);
+    return {};
+  }
+};
+
 const suggestKeywordsWithPerplexity = async (businessDetails) => {
   const {
     companyName,
@@ -94,7 +146,7 @@ Specific AI Requirement: ...
       return line ? line.replace(label, "").trim() : "";
     };
 
-    return {
+    const result = {
       primaryKeywords: extract("Primary Keywords:"),
       secondaryKeywords: extract("Secondary Keywords:"),
       keyPoints: extract("Key Points:"),
@@ -104,6 +156,40 @@ Specific AI Requirement: ...
       cta: extractSingle("Call to Action:"),
       specificInstructions: extractSingle("Specific AI Requirement:"),
     };
+
+    const primaryKeyword = result.primaryKeywords[0] || effectiveFocusService;
+
+    // Tweak 1: Competitive Research
+    const competitiveData = await fetchFromPerplexity(primaryKeyword, {
+      intent: "SERP_analysis",
+      output: ["topH2s", "metaDescriptions", "snippetSummaries", "contentGaps"],
+    });
+    result.competitiveData = competitiveData;
+
+    // Tweak 2: Real Stats
+    const stats = await fetchFromPerplexity(`latest stats on ${effectiveFocusService}`, { topFacts: 3 });
+    result.stats = stats;
+
+    // Tweak 3: Better FAQs
+    const faqs = await fetchFromPerplexity(primaryKeyword, {
+      type: "relatedQuestions",
+      sources: ["Google", "Reddit", "Quora"],
+    });
+    result.faqs = faqs;
+
+    // Tweak 4: Featured Snippet Optimization
+    const snippetData = await fetchFromPerplexity(primaryKeyword, { intent: "snippetAnalysis" });
+    result.snippetData = snippetData;
+
+    // Tweak 5: Topic Clusters
+    const clusters = await fetchFromPerplexity(effectiveFocusService, { intent: "contentCluster" });
+    result.clusters = clusters;
+
+    // Tweak 6: Entity Enrichment
+    const entities = await fetchFromPerplexity(`trending tools or thought leaders in ${effectiveFocusService} for 2025`);
+    result.entities = entities;
+
+    return result;
   } catch (err) {
     console.error("Perplexity Suggestion Error:", err);
     return {
@@ -115,8 +201,14 @@ Specific AI Requirement: ...
       personalAnecdote: "",
       cta: "",
       specificInstructions: "",
+      competitiveData: {},
+      stats: {},
+      faqs: {},
+      snippetData: {},
+      clusters: {},
+      entities: {},
     };
   }
 };
 
-module.exports = { suggestKeywordsWithPerplexity };
+module.exports = { suggestKeywordsWithPerplexity, fetchFromPerplexity };

@@ -61,31 +61,34 @@ const suggestSocialMediaDetails = async (businessDetails) => {
   const format = trendInsights[0]?.length > 10 ? trendInsights[0] : "simple, visual-first post";
 
   const prompt = `
-You are a social media strategist. Based on the business context below, generate:
-- 3 short key message ideas (3 to 5 words only)
-- 1 specific AI instruction for content generation
-- 1 suggested hook style (e.g., "shocking stat", "rhetorical question")
-Make sure suggestions match the focus service, pillar, tone, platform, and target.
+You are a social media strategist. Based on the business information and selected content configuration below, generate the following:
 
-Tone: ${adjustedTone}
-Format Trend: ${format}
+1. Key Messages – give exactly 3 ideas (3-5 words only).
+2. Specific AI Instruction – one full sentence that tells the AI **how to write** the post **based on the user's selected preferences** including platform, goal, content pillar, brand tone, and focus service. Mention these choices explicitly when applicable.
+3. You must incorporate the selected **Hook Style** into the content format and reference it clearly in the instruction.
 
-Business:
-- Company Name: ${companyName || "Unknown Company"}
-- Description: ${description || "No description provided."}
-- Services: ${services || "General services"}
+Business Details:
+- Company Name: ${companyName}
+- Description: ${description}
+- Services: ${services}
 - Focus Service: ${effectiveFocusService}
-- Target Audience: ${targetAudience || "general audience"}
-- Platform: ${socialMediaType || "Facebook Post"}
-- Goal: ${goal || "Generate Leads"}
-- Content Pillar: ${contentPillar || "Educate"}
+- Target Audience: ${targetAudience}
 
-Respond in plain text:
-Key Messages: message 1, message 2, message 3
-Specific AI Instruction: Create a ${socialMediaType} targeting ${targetAudience}. Focus on ${pillarVerb} content about ${effectiveFocusService} with a ${adjustedTone} tone. Use a format like: "${format}". Goal: ${goal}.
-Suggested Hook: ${suggestedHook}
+User-Selected Content Configuration:
+- Platform: ${socialMediaType}
+- Goal: ${goal}
+- Content Pillar: ${contentPillar}
+- Brand Tone: ${adjustedTone}
+- Suggested Hook Style: ${suggestedHook}
+- Format Trend: ${format}
+
+Respond in plain text with exactly 2 sections:
+"Key Messages:" followed by the 3 ideas, and "Specific AI Instruction:" followed by 1 sentence.
 `;
 
+
+
+console.log("Final Perplexity Prompt:\n", prompt);
   try {
     const response = await perplexityApi.post("/chat/completions", {
       model: "sonar-pro",
@@ -96,10 +99,48 @@ Suggested Hook: ${suggestedHook}
       max_tokens: 150,
       temperature: 0.7,
     });
-
+    console.log("Raw Perplexity Response:\n", response.data.choices[0].message.content);
     const lines = response.data.choices[0].message.content.split("\n").filter((line) => line.trim());
-    const extract = (label) => lines.find((l) => l.startsWith(label))?.replace(label, "").split(",").map((x) => x.trim()) || [];
-    const extractSingle = (label) => lines.find((l) => l.startsWith(label))?.replace(label, "").trim() || "";
+
+    // Updated extract function to handle numbered list format
+    const extract = (label) => {
+      const index = lines.findIndex((line) =>
+        line.toLowerCase().startsWith(label.toLowerCase())
+      );
+      if (index === -1) return [];
+    
+      const raw = lines[index];
+      const cleaned = raw.split(":")[1] || raw.split("–")[1] || raw.split("-")[1];
+      if (!cleaned) return [];
+    
+      if (cleaned.includes(",")) {
+        return cleaned.split(",").map((item) => item.trim()).filter(Boolean);
+      }
+    
+      // fallback if numbered format below the line
+      const messages = [];
+      for (let i = index + 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (/^\d+\.\s/.test(line)) {
+          messages.push(line.replace(/^\d+\.\s*/, "").trim());
+        } else {
+          break;
+        }
+      }
+      return messages;
+    };
+
+    // Updated extractSingle function to handle single-line instruction
+    const extractSingle = (label) => {
+      const index = lines.findIndex((line) =>
+        line.toLowerCase().startsWith(label.toLowerCase())
+      );
+      if (index === -1) return "";
+    
+      const raw = lines[index];
+      const cleaned = raw.split(":")[1] || raw.split("–")[1] || raw.split("-")[1];
+      return cleaned ? cleaned.trim() : "";
+    };
 
     return {
       suggestedKeyMessages: extract("Key Messages:"),
