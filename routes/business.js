@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Business = require('../models/Business');
 const User = require('../models/User');
-const { ensureAuthenticated, ensureBusinessRole } = require('../middleware/auth');
+const { ensureAuthenticated } = require('../middleware/auth');
 const mongoose = require("mongoose");
 const axios = require('axios');
 const { sendEmail } = require('../utils/email');
@@ -10,6 +10,8 @@ const NodeCache = require('node-cache');
 const { storage } = require('../config/cloudinary'); // Your Cloudinary config
 const multer = require('multer');
 const upload = multer({ storage });
+const { hasBusinessAccess, ensureBusinessRole } = require('../middleware/businessAccess');
+
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:8080';
 
@@ -165,20 +167,76 @@ router.get('/extract-branding', ensureAuthenticated, async (req, res) => {
   }
 });
 
+  // Get all businesses for the authenticated user
+  router.get('/', ensureAuthenticated, async (req, res) => {
+    try {
+      const businesses = await Business.find({
+        $or: [
+          { owner: req.user._id },
+          { 'members.user': req.user._id },
+        ],
+      }).populate('owner', 'email name').populate('members.user', 'email name');
+      res.json({ businesses });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch businesses' });
+    }
+  });
+
 // Get all businesses for the authenticated user
-router.get('/', ensureAuthenticated, async (req, res) => {
+router.get('/:businessId', ensureAuthenticated, async (req, res) => {
+  const { businessId } = req.params;
+
+  // ✅ 1. Log the incoming params to inspect the ID
+  console.log('🔍 GET /business/:businessId triggered');
+  console.log('Params:', req.params); // Should show { businessId: '...' }
+  console.log('User trying to access:', req.user?._id);
+
+  // ✅ 2. Check if the businessId is valid
+  if (!mongoose.Types.ObjectId.isValid(businessId)) {
+    console.warn('⚠️ Invalid businessId format:', businessId);
+    return res.status(400).json({ error: 'Invalid business ID' });
+  }
+
   try {
-    const businesses = await Business.find({
-      $or: [
-        { owner: req.user._id },
-        { 'members.user': req.user._id },
-      ],
-    }).populate('owner', 'email name').populate('members.user', 'email name');
-    res.json({ businesses });
+    // ✅ 3. Fetch the business and log it
+    const business = await Business.findById(businessId)
+      .populate('owner', 'email name')
+      .populate('members.user', 'email name image');
+
+    if (!business) {
+      console.warn('❌ Business not found:', businessId);
+      return res.status(404).json({ error: 'Business not found' });
+    }
+
+    console.log('✅ Business fetched:', business._id);
+
+    // ✅ 4. Check if business owner is corrupted/missing
+    if (!business.owner || !business.owner._id) {
+      console.error('💥 Business owner data is corrupted:', business.owner);
+      return res.status(500).json({ error: 'Business owner data is corrupted or missing' });
+    }
+
+    // ✅ 5. Ownership + Membership check
+    const isOwner = business.owner._id.toString() === req.user._id.toString();
+    const isMember = business.members?.some(
+      (member) => member?.user?._id?.toString() === req.user._id.toString()
+    );
+
+    console.log('🧠 Access check:', { isOwner, isMember });
+
+    if (!isOwner && !isMember) {
+      console.warn('🚫 Unauthorized access attempt by:', req.user._id);
+      return res.status(403).json({ error: 'Not authorized to view this business' });
+    }
+
+    res.json({ business, currentUserId: req.user._id.toString() });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch businesses' });
+    // ✅ 6. Catch block must always log errors clearly
+    console.error('❌ Error fetching business:', error);
+    res.status(500).json({ error: 'Failed to fetch business', details: error.message });
   }
 });
+
 
 // Add a new business
 router.post('/', ensureAuthenticated, upload.single('image'), async (req, res) => {
@@ -193,87 +251,76 @@ router.post('/', ensureAuthenticated, upload.single('image'), async (req, res) =
 
   try {
     const newBusiness = new Business({
-      companyName, description, services, targetAudience, demographic, address,
-      email, phoneNumber, brandTone, hasWebsite, companyWebsite,
-      image: req.file ? req.file.path : null, // Store Cloudinary URL if uploaded
+      companyName,
+      description,
+      services,
+      targetAudience,
+      demographic: demographic || '',
+      address: address || '',
+      email: email || '',
+      phoneNumber: phoneNumber || '',
+      brandTone: brandTone || '',
+      hasWebsite: hasWebsite ?? true,
+      companyWebsite: companyWebsite || '',
+      image: req.file?.path || null,
       owner: req.user._id,
       members: [{ user: req.user._id, role: 'Admin' }],
     });
 
     await newBusiness.save();
-    await User.findByIdAndUpdate(req.user._id, { $push: { businesses: newBusiness._id } });
+
+    await User.findByIdAndUpdate(req.user._id, {
+      $push: { businesses: newBusiness._id },
+    });
+
     req.session.businessId = newBusiness._id;
-    res.json({ business: newBusiness });
+
+    res.status(201).json({ business: newBusiness });
   } catch (error) {
     console.error('Error creating business:', error);
-    res.status(500).json({ error: 'Failed to create business' });
+    res.status(500).json({ error: 'Failed to create business', details: error.message });
   }
 });
 
+
 // Display business
-router.get('/:businessId', ensureAuthenticated, async (req, res) => {
-  const { businessId } = req.params;
-
+router.get('/:businessId', ensureAuthenticated, hasBusinessAccess, (req, res) => {
   try {
-    if (!mongoose.Types.ObjectId.isValid(businessId)) {
-      return res.status(400).json({ error: 'Invalid business ID' });
-    }
+    const business = req.business;
 
-    const rawBusiness = await Business.findById(businessId);
-  
-
-    const business = await Business.findById(businessId)
-      .populate('owner', 'email name')
-      .populate('members.user', 'email name image');
-    if (!business) {
-      return res.status(404).json({ error: 'Business not found' });
-    }
-    const isOwner = business.owner._id.toString() === req.user._id.toString();
-    const isMember = business.members.some(
-      (member) => member.user._id.toString() === req.user._id.toString()
-    );
-
-    if (!isOwner && !isMember) {
-      return res.status(403).json({ error: 'Not authorized to view this business' });
-    }
-
-    res.json({ business, currentUserId: req.user._id.toString() });
+    res.json({
+      business: {
+        ...business.toObject(),
+        members: business.members?.filter((m) => m?.user),
+      },
+      currentUserId: req.user._id.toString(),
+    });
   } catch (error) {
-    console.error('Error fetching business:', error);
+    console.error('Error in GET /business/:businessId:', error);
     res.status(500).json({ error: 'Failed to fetch business', details: error.message });
   }
 });
 
+
+
 // Update a business
-router.put('/:businessId', ensureAuthenticated, ensureBusinessRole('Admin'), upload.single('image'), async (req, res) => {
+router.put('/:businessId', ensureAuthenticated, ensureBusinessRole('Admin'), hasBusinessAccess, upload.single('image'), async (req, res) => {
   const { businessId } = req.params;
-  const {
-    companyName, description, services, targetAudience, demographic, address,
-    email, phoneNumber, brandTone, hasWebsite, companyWebsite
-  } = req.body;
+  const updateFields = [
+    'companyName', 'description', 'services', 'targetAudience', 'demographic',
+    'address', 'email', 'phoneNumber', 'brandTone', 'hasWebsite', 'companyWebsite'
+  ];
 
   try {
-    if (!mongoose.Types.ObjectId.isValid(businessId)) {
-      return res.status(400).json({ error: 'Invalid business ID' });
-    }
+    const business = req.business;
 
-    const business = await Business.findById(businessId);
-    if (!business) {
-      return res.status(404).json({ error: 'Business not found' });
-    }
+    updateFields.forEach((field) => {
+      if (req.body[field]) business[field] = req.body[field];
+    });
 
-    business.companyName = companyName || business.companyName;
-    business.description = description || business.description;
-    business.services = services || business.services;
-    business.targetAudience = targetAudience || business.targetAudience;
-    business.demographic = demographic || business.demographic;
-    business.address = address || business.address;
-    business.email = email || business.email;
-    business.phoneNumber = phoneNumber || business.phoneNumber;
-    business.brandTone = brandTone || business.brandTone;
-    business.hasWebsite = hasWebsite || business.hasWebsite;
-    business.companyWebsite = companyWebsite || business.companyWebsite;
-    if (req.file) business.image = req.file.path; // Update image if uploaded
+    if (req.file) {
+      business.image = req.file.path;
+    }
 
     await business.save();
     res.json({ business });
@@ -283,57 +330,53 @@ router.put('/:businessId', ensureAuthenticated, ensureBusinessRole('Admin'), upl
   }
 });
 
+
 // Delete a business
-router.delete('/:businessId', ensureAuthenticated, ensureBusinessRole('Admin'), async (req, res) => {
+router.delete('/:businessId', ensureAuthenticated, ensureBusinessRole('Admin'), hasBusinessAccess, async (req, res) => {
   const { businessId } = req.params;
 
   try {
-    const business = await Business.findById(businessId);
-    if (!business) {
-      return res.status(404).json({ error: 'Business not found' });
-    }
-
-    // Only the owner can delete the business
+    const business = req.business;
     if (business.owner.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ error: 'Not authorized to delete this business' });
+      return res.status(403).json({ error: 'Only the owner can delete this business' });
     }
 
     await Business.deleteOne({ _id: businessId });
-
-    // Remove business from user's businesses array
     await User.findByIdAndUpdate(req.user._id, {
       $pull: { businesses: businessId },
     });
 
     res.json({ message: 'Business deleted successfully' });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to delete business' });
+    console.error('Error deleting business:', error);
+    res.status(500).json({ error: 'Failed to delete business', details: error.message });
   }
 });
 
-// Invite a member to a business
-router.post('/:businessId/invite', ensureAuthenticated, ensureBusinessRole('Admin'), async (req, res) => {
-  const { businessId } = req.params;
-  const { email, role } = req.body;
 
-  if (!email || !role || !['Admin', 'Editor', 'Viewer'].includes(role) || !email.includes('@')) {
+// Invite a member to a business
+router.post('/:businessId/invite', ensureAuthenticated, ensureBusinessRole('Admin'), hasBusinessAccess, async (req, res) => {
+  const { email, role } = req.body;
+  const business = req.business;
+  const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:8080';
+
+  if (
+    !email ||
+    !role ||
+    !['Admin', 'Editor', 'Viewer'].includes(role) ||
+    !email.includes('@')
+  ) {
     return res.status(400).json({ error: 'Email and valid role are required' });
   }
 
   try {
-    const business = await Business.findById(businessId);
-    if (!business) {
-      return res.status(404).json({ error: 'Business not found' });
-    }
-
     const userToInvite = await User.findOne({ email: email.toLowerCase() });
 
-    const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:8080';
-
     if (userToInvite) {
-      const isAlreadyMember = business.members.some(
-        (member) => member.user.toString() === userToInvite._id.toString()
+      const isAlreadyMember = business.members?.some(
+        (member) => member?.user?.toString() === userToInvite._id.toString()
       );
+
       if (isAlreadyMember) {
         return res.status(400).json({ error: 'User is already a member of this business' });
       }
@@ -342,81 +385,13 @@ router.post('/:businessId/invite', ensureAuthenticated, ensureBusinessRole('Admi
       await business.save();
 
       await User.findByIdAndUpdate(userToInvite._id, {
-        $push: { businesses: business._id },
+        $addToSet: { businesses: business._id },
       });
 
-      // Send email invitation to existing user
       const subject = `You're Invited to Join ${business.companyName} on EditEdge Multimedia`;
-      const text = `Hello ${userToInvite.name},\n\nYou have been invited to join ${business.companyName} as an ${role} on EditEdge Multimedia, a platform for generating and managing content for your business. Please log in to your account to access the business: ${FRONTEND_URL}/login\n\nBest regards,\nThe EditEdge Multimedia Team`;
+      const text = `Hello ${userToInvite.name},\n\nYou have been invited to join ${business.companyName} as an ${role} on EditEdge Multimedia. Log in here: ${FRONTEND_URL}/login\n\nBest regards,\nThe EditEdge Multimedia Team`;
+
       const html = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>You're Invited to Join ${business.companyName}</title>
-        </head>
-        <body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f4f4f4;">
-          <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f4f4f4; padding: 20px;">
-            <tr>
-              <td align="center">
-                <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; background-color: #ffffff; border: 1px solid #e0e0e0; border-radius: 8px;">
-                  <tr>
-                    <td align="center" style="padding: 20px;">
-                      <img src="https://res.cloudinary.com/dowyujl8h/image/upload/v1738490869/5_bbrzhk.png" alt="EditEdge Multimedia Logo" style="max-width: 150px; margin-bottom: 20px; display: block;" />
-                    </td>
-                  </tr>
-                  <tr>
-                    <td align="center" style="padding: 0 20px;">
-                      <h2 style="color: #333333; font-size: 24px; margin: 0 0 20px;">You're Invited to Join ${business.companyName}</h2>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 0 20px 20px;">
-                      <p style="color: #555555; font-size: 16px; line-height: 1.6; margin: 0 0 10px;">Hello ${userToInvite.name},</p>
-                      <p style="color: #555555; font-size: 16px; line-height: 1.6; margin: 0 0 20px;">
-                        You have been invited to join <strong>${business.companyName}</strong> as an <strong>${role}</strong> on EditEdge Multimedia, a platform for generating and managing content for your business.
-                      </p>
-                      <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 30px auto;">
-                        <tr>
-                          <td align="center" style="background-color: #303030; border-radius: 5px;">
-                            <a href="${FRONTEND_URL}/login" style="display: inline-block; padding: 12px 24px; color: #ffffff; font-size: 16px; font-weight: bold; text-decoration: none;">Log In to Join</a>
-                          </td>
-                        </tr>
-                      </table>
-                      <p style="color: #555555; font-size: 16px; line-height: 1.6; margin: 0 0 10px;">
-                        If you have any questions, feel free to reply to this email or contact our support team at <a href="mailto:support@editedgemultimedia.com" style="color: #303030; text-decoration: none;">support@editedgemultimedia.com</a>.
-                      </p>
-                      <p style="color: #555555; font-size: 16px; line-height: 1.6; margin: 0;">
-                        Best regards,<br>The EditEdge Multimedia Team
-                      </p>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 20px; border-top: 1px solid #e0e0e0;">
-                      <p style="color: #999999; font-size: 12px; text-align: center; margin: 0;">
-                        © 2025 EditEdge Multimedia. All rights reserved.<br>
-                        <a href="${FRONTEND_URL}/privacy" style="color: #303030; text-decoration: none;">Privacy Policy</a> | <a href="${FRONTEND_URL}/terms" style="color: #999999; text-decoration: none;">Terms of Service</a>
-                      </p>
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-          </table>
-        </body>
-        </html>
-      `;
-
-      await sendEmail(email, subject, text, html);
-      return res.json({ message: 'Member invited successfully' });
-    }
-
-    // User doesn't exist, send an invitation to register
-    const registrationLink = `${FRONTEND_URL}/register?email=${encodeURIComponent(email)}&businessId=${businessId}&role=${role}`;
-    const subject = `You're Invited to Join ${business.companyName} on EditEdge Multimedia`;
-    const text = `Hello,\n\nYou have been invited to join ${business.companyName} as an ${role} on EditEdge Multimedia, a platform for generating and managing content for your business. Please register to join: ${registrationLink}\n\nBest regards,\nThe EditEdge Multimedia Team`;
-    const html = `
       <!DOCTYPE html>
       <html>
       <head>
@@ -441,14 +416,14 @@ router.post('/:businessId/invite', ensureAuthenticated, ensureBusinessRole('Admi
                 </tr>
                 <tr>
                   <td style="padding: 0 20px 20px;">
-                    <p style="color: #555555; font-size: 16px; line-height: 1.6; margin: 0 0 10px;">Hello,</p>
+                    <p style="color: #555555; font-size: 16px; line-height: 1.6; margin: 0 0 10px;">Hello ${userToInvite.name},</p>
                     <p style="color: #555555; font-size: 16px; line-height: 1.6; margin: 0 0 20px;">
                       You have been invited to join <strong>${business.companyName}</strong> as an <strong>${role}</strong> on EditEdge Multimedia, a platform for generating and managing content for your business.
                     </p>
                     <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 30px auto;">
                       <tr>
                         <td align="center" style="background-color: #303030; border-radius: 5px;">
-                          <a href="${registrationLink}" style="display: inline-block; padding: 12px 24px; color: #ffffff; font-size: 16px; font-weight: bold; text-decoration: none;">Register Now</a>
+                          <a href="${FRONTEND_URL}/login" style="display: inline-block; padding: 12px 24px; color: #ffffff; font-size: 16px; font-weight: bold; text-decoration: none;">Log In to Join</a>
                         </td>
                       </tr>
                     </table>
@@ -464,7 +439,7 @@ router.post('/:businessId/invite', ensureAuthenticated, ensureBusinessRole('Admi
                   <td style="padding: 20px; border-top: 1px solid #e0e0e0;">
                     <p style="color: #999999; font-size: 12px; text-align: center; margin: 0;">
                       © 2025 EditEdge Multimedia. All rights reserved.<br>
-                      <a href="${FRONTEND_URL}/privacy" style="color: #999999; text-decoration: none;">Privacy Policy</a> | <a href="${FRONTEND_URL}/terms" style="color: #999999; text-decoration: none;">Terms of Service</a>
+                      <a href="${FRONTEND_URL}/privacy" style="color: #303030; text-decoration: none;">Privacy Policy</a> | <a href="${FRONTEND_URL}/terms" style="color: #999999; text-decoration: none;">Terms of Service</a>
                     </p>
                   </td>
                 </tr>
@@ -476,90 +451,145 @@ router.post('/:businessId/invite', ensureAuthenticated, ensureBusinessRole('Admi
       </html>
     `;
 
+      await sendEmail(email, subject, text, html);
+      return res.json({ message: 'Member invited successfully' });
+    }
+
+    // If user is not registered
+    const registrationLink = `${FRONTEND_URL}/register?email=${encodeURIComponent(email)}&businessId=${business._id}&role=${role}`;
+    const subject = `You're Invited to Join ${business.companyName} on EditEdge Multimedia`;
+    const text = `Hello,\n\nYou have been invited to join ${business.companyName} as an ${role} on EditEdge Multimedia. Please register to join: ${registrationLink}\n\nBest regards,\nThe EditEdge Multimedia Team`;
+
+    const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>You're Invited to Join ${business.companyName}</title>
+        </head>
+        <body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f4f4f4;">
+          <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f4f4f4; padding: 20px;">
+            <tr>
+              <td align="center">
+                <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; background-color: #ffffff; border: 1px solid #e0e0e0; border-radius: 8px;">
+                  <tr>
+                    <td align="center" style="padding: 20px;">
+                      <img src="https://res.cloudinary.com/dowyujl8h/image/upload/v1738490869/5_bbrzhk.png" alt="EditEdge Multimedia Logo" style="max-width: 150px; margin-bottom: 20px; display: block;" />
+                    </td>
+                  </tr>
+                  <tr>
+                    <td align="center" style="padding: 0 20px;">
+                      <h2 style="color: #333333; font-size: 24px; margin: 0 0 20px;">You're Invited to Join ${business.companyName}</h2>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 0 20px 20px;">
+                      <p style="color: #555555; font-size: 16px; line-height: 1.6; margin: 0 0 10px;">Hello,</p>
+                      <p style="color: #555555; font-size: 16px; line-height: 1.6; margin: 0 0 20px;">
+                        You have been invited to join <strong>${business.companyName}</strong> as an <strong>${role}</strong> on EditEdge Multimedia, a platform for generating and managing content for your business.
+                      </p>
+                      <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 30px auto;">
+                        <tr>
+                          <td align="center" style="background-color: #303030; border-radius: 5px;">
+                            <a href="${registrationLink}" style="display: inline-block; padding: 12px 24px; color: #ffffff; font-size: 16px; font-weight: bold; text-decoration: none;">Register Now</a>
+                          </td>
+                        </tr>
+                      </table>
+                      <p style="color: #555555; font-size: 16px; line-height: 1.6; margin: 0 0 10px;">
+                        If you have any questions, feel free to reply to this email or contact our support team at <a href="mailto:support@editedgemultimedia.com" style="color: #303030; text-decoration: none;">support@editedgemultimedia.com</a>.
+                      </p>
+                      <p style="color: #555555; font-size: 16px; line-height: 1.6; margin: 0;">
+                        Best regards,<br>The EditEdge Multimedia Team
+                      </p>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 20px; border-top: 1px solid #e0e0e0;">
+                      <p style="color: #999999; font-size: 12px; text-align: center; margin: 0;">
+                        © 2025 EditEdge Multimedia. All rights reserved.<br>
+                        <a href="${FRONTEND_URL}/privacy" style="color: #999999; text-decoration: none;">Privacy Policy</a> | <a href="${FRONTEND_URL}/terms" style="color: #999999; text-decoration: none;">Terms of Service</a>
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </body>
+        </html>
+      `;
+
     await sendEmail(email, subject, text, html);
     res.json({ message: 'Invitation email sent successfully' });
   } catch (error) {
+    console.error('Error inviting member:', error);
     res.status(500).json({ error: 'Failed to invite member', details: error.message });
   }
 });
+
 
 // Select a business
 router.post('/select-business', ensureAuthenticated, async (req, res) => {
   const { businessId } = req.body;
 
-  // Validate input
-  if (!businessId) {
-    return res.status(400).json({ error: 'Business ID is required' });
+  if (!mongoose.Types.ObjectId.isValid(businessId)) {
+    return res.status(400).json({ error: 'Invalid business ID' });
   }
 
   try {
-    // Validate businessId format
-    if (!mongoose.Types.ObjectId.isValid(businessId)) {
-      return res.status(400).json({ error: 'Invalid business ID' });
-    }
-
-    // Fetch the user with their businesses
     const user = await User.findById(req.user._id).populate('businesses');
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
+    if (!user) return res.status(404).json({ error: 'User not found' });
 
-    // Check if the businessId belongs to the user's businesses
-    const businessExists = user.businesses.some(business => business._id.toString() === businessId);
-    if (!businessExists) {
+    const hasAccess = user.businesses.some(
+      (b) => b._id.toString() === businessId
+    );
+
+    if (!hasAccess) {
       return res.status(403).json({ error: 'You do not have access to this business' });
     }
 
-    // Set the businessId in the session
     req.session.businessId = businessId;
     res.json({ message: 'Business selected successfully', businessId });
   } catch (error) {
-    console.error('Error selecting business:', error);
-    res.status(500).json({ error: 'Error selecting business', details: error.message });
+    console.error('Error in POST /select-business:', error);
+    res.status(500).json({ error: 'Failed to select business', details: error.message });
   }
 });
 
 
 
-// Remove a member from a business (only owner can perform this action)
-router.delete('/:businessId/members/:memberId', ensureAuthenticated, async (req, res) => {
+
+// DELETE /api/business/:businessId/members/:memberId
+router.delete('/:businessId/members/:memberId', ensureAuthenticated, hasBusinessAccess, async (req, res) => {
   const { businessId, memberId } = req.params;
 
   try {
-    // Validate ObjectId format
-    if (!mongoose.Types.ObjectId.isValid(businessId) || !mongoose.Types.ObjectId.isValid(memberId)) {
-      return res.status(400).json({ error: 'Invalid business ID or member ID' });
-    }
+    const business = req.business;
 
-    // Fetch the business
-    const business = await Business.findById(businessId);
-    if (!business) {
-      return res.status(404).json({ error: 'Business not found' });
-    }
-
-    // Check if the requester is the owner
+    // Only owner can remove members
     if (business.owner.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ error: 'Only the business owner can remove members' });
+      return res.status(403).json({ error: 'Only the owner can remove members' });
     }
 
-    // Check if the member exists in the business
-    const memberIndex = business.members.findIndex(
-      (member) => member.user.toString() === memberId
-    );
-    if (memberIndex === -1) {
-      return res.status(404).json({ error: 'Member not found in this business' });
-    }
-
-    // Prevent owner from removing themselves via this route
+    // Prevent self-removal
     if (memberId === req.user._id.toString()) {
-      return res.status(400).json({ error: 'Owner cannot remove themselves using this route' });
+      return res.status(400).json({ error: 'Owner cannot remove themselves' });
     }
 
-    // Remove the member from the business
-    business.members.splice(memberIndex, 1);
+    // Remove member from business.members
+    const originalLength = business.members.length;
+    business.members = business.members.filter(
+      (m) => m?.user?.toString() !== memberId
+    );
+
+    if (business.members.length === originalLength) {
+      return res.status(404).json({ error: 'Member not found in business' });
+    }
+
     await business.save();
 
-    // Remove the business from the member's businesses array
+    // Remove business from user's businesses list
     await User.findByIdAndUpdate(memberId, {
       $pull: { businesses: businessId },
     });
@@ -570,6 +600,7 @@ router.delete('/:businessId/members/:memberId', ensureAuthenticated, async (req,
     res.status(500).json({ error: 'Failed to remove member', details: error.message });
   }
 });
+
 
 router.put('/:businessId/members/:memberId/role', ensureAuthenticated, async (req, res) => {
   const { businessId, memberId } = req.params;

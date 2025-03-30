@@ -7,6 +7,7 @@ const crypto = require('crypto'); // For generating reset tokens
 const User = require('../models/User');
 const Business = require('../models/Business');
 const { sendEmail } = require('../utils/email');
+const { ensureAuthenticated } = require('../middleware/auth');
 
 
 // Register a new user
@@ -240,7 +241,7 @@ router.post('/logout', (req, res) => {
 });
 
 // Get current user
-router.get('/current-user', (req, res) => {
+router.get('/current-user',ensureAuthenticated, (req, res) => {
   if (req.isAuthenticated()) {
     res.json({ user: req.user });
   } else {

@@ -8,7 +8,8 @@ const { suggestKeywordsWithPerplexity, fetchFromPerplexity } = require("../utils
 const { jsonrepair } = require("jsonrepair");
 const Content = require("../models/Content");
 const User = require("../models/User");
-const { ensureAuthenticated, ensureBusinessRole } = require("../middleware/auth");
+const { ensureAuthenticated } = require("../middleware/auth");
+const { ensureBusinessRole } = require('../middleware/businessAccess');
 
 
 const openai = new OpenAI({

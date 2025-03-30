@@ -24,10 +24,15 @@ app.options('*', cors());
 
 app.use((req, res, next) => {
   res.on('finish', () => {
-    console.log('Response Headers:', res.getHeaders());
+    const headers = res.getHeaders();
+    console.log(`[${req.method}] ${req.originalUrl} =>`, {
+      'Set-Cookie': headers['set-cookie'],
+      'Access-Control-Allow-Origin': headers['access-control-allow-origin'],
+    });
   });
   next();
 });
+
 
 const bodyParser = require("body-parser");
 const OpenAI = require("openai");
@@ -314,6 +319,10 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: "Something went wrong!" });
 });
 
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('🔥 Unhandled Rejection at:', promise, 'reason:', reason);
+});
 // Start Server
 const server = app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);

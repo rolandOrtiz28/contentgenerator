@@ -7,7 +7,8 @@ const Business = require('../models/Business');
 const { suggestSocialMediaDetails } = require("../utils/socialMediaSuggester");
 const Content = require('../models/Content');
 const User = require('../models/User');
-const { ensureAuthenticated, ensureBusinessRole } = require('../middleware/auth');
+const { ensureAuthenticated } = require('../middleware/auth');
+const { ensureBusinessRole } = require('../middleware/businessAccess');
 const removeMarkdown = require('remove-markdown');
 
 
