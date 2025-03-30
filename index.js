@@ -43,6 +43,8 @@ const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const xss = require("xss-clean");
 const mongoSanitize = require("express-mongo-sanitize");
+const { Server } = require("socket.io");
+const socketServer = require('./socket');
 
 const passport = require('passport');
 
@@ -55,6 +57,7 @@ const userRoutes = require('./routes/user');
 const authRoute = require('./routes/auth');
 const billingRoutes = require('./routes/billing');
 const imageRoutes = require('./routes/imageRoutes');
+const adminRoutes = require('./routes/admin');
 
 require('./config/passport'); // Initialize Passport
 
@@ -263,8 +266,10 @@ app.use(
 
 // Add logging to verify session middleware
 app.use((req, res, next) => {
+  console.log(`[REQ] ${req.method} ${req.originalUrl}`);
   next();
 });
+
 
 // Initialize Passport
 app.use(passport.initialize());
@@ -312,6 +317,7 @@ app.use('/api/content', contentRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/billing', billingRoutes);
 app.use('/api/images', imageRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Error Handling
 app.use((err, req, res, next) => {
@@ -327,6 +333,8 @@ process.on('unhandledRejection', (reason, promise) => {
 const server = app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
 });
+
+const io = socketServer.init(server);
 
 // Graceful Shutdown
 process.on('SIGTERM', () => {

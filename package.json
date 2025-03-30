@@ -39,6 +39,7 @@
     "passport-local": "^1.0.0",
     "remove-markdown": "^0.6.0",
     "replicate": "^1.0.1",
+    "socket.io": "^4.8.1",
     "stripe": "^17.7.0",
     "xss-clean": "^0.1.4"
   },
