@@ -1,28 +1,83 @@
 // utils/suggestions.js
 const { getSEOSuggestionsWithFallback } = require("./suggestionFetcher"); // Adjust path as needed
 
-const fetchWithFallback = async (query, options = {}) => {
-  const { intent, output, type, sources, topFacts, criteria } = options;
+const buildPrompt = (query, options = {}) => {
+  const {
+    intent,
+    output = [],
+    type,
+    sources = [],
+    topFacts,
+    criteria = [],
+  } = options;
 
-  const prompt = `
-You are an SEO and content analysis expert. Based on the query "${query}", provide the following:
-${
-  intent === "SERP_analysis"
-    ? `Analyze the top-ranking pages. Return: ${output.join(", ")}`
-    : intent === "snippetAnalysis"
-    ? "Analyze the featured snippet. Return its format (paragraph, list, table) and triggering question."
-    : intent === "contentCluster"
-    ? "Suggest related subtopics for a content cluster and internal linking opportunities."
-    : intent === "critique"
-    ? `Critique this content for: ${criteria.join(", ")}. Suggest improvements.`
-    : type === "relatedQuestions"
-    ? `Find real user questions from ${sources.join(", ")}.`
-    : topFacts
-    ? `Return the top ${topFacts} recent stats or facts with sources.`
-    : "List trending tools or thought leaders for 2025 related to the query."
-}
-Respond in plain text, no markdown, with key-value pairs separated by newlines (e.g., key: value).
+  const base = `You are an expert SEO content strategist working with top tools like Ahrefs, SEMrush, and Clearscope.`;
+
+  const format = `Respond ONLY in plain text using this format:
+key: value
+(One per line. No extra commentary. No markdown.)
 `;
+
+  if (intent === "SERP_analysis") {
+    return `${base}
+Analyze the top 3 Google ranking pages for the query: "${query}"
+Return:
+${output.map((o) => `- ${o}`).join("\n")}
+${format}`;
+  }
+
+  if (intent === "snippetAnalysis") {
+    return `${base}
+Find the featured snippet for the query: "${query}"
+Return:
+- snippetQuestion: the question being answered
+- snippetFormat: one of: paragraph, list, or table
+${format}`;
+  }
+
+  if (intent === "contentCluster") {
+    return `${base}
+Based on the query "${query}", suggest:
+- Related Subtopics (cluster content)
+- Internal linking opportunities
+${format}`;
+  }
+
+  if (intent === "critique") {
+    return `${base}
+Critique the following content for the following SEO criteria: ${criteria.join(", ")}
+Content:
+${query}
+Return suggestions using key: value format.
+${format}`;
+  }
+
+  if (type === "relatedQuestions") {
+    return `${base}
+Extract 5 real questions people ask related to: "${query}"
+Sources: ${sources.join(", ")}
+Return each as:
+question: example question
+${format}`;
+  }
+
+  if (topFacts) {
+    return `${base}
+Give the top ${topFacts} recent statistics with sources related to: "${query}"
+Each must be recent (within the last 2 years) and from a credible source (Statista, HubSpot, Google, etc).
+Return:
+fact: source
+${format}`;
+  }
+
+  return `${base}
+List top trending tools, influencers, or thought leaders for 2025 related to: "${query}"
+${format}`;
+};
+
+
+const fetchWithFallback = async (query, options = {}) => {
+  const prompt = buildPrompt(query, options);
 
   const response = await getSEOSuggestionsWithFallback(prompt);
   const content = response.text;

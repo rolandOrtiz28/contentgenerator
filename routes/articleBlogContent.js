@@ -4,12 +4,13 @@ const router = express.Router();
 const OpenAI = require("openai");
 const axios = require("axios");
 const Business = require("../models/Business");
-const { suggestKeywordsWithPerplexity, fetchWithFallback } = require("../utils/keywordSuggester"); // Updated import
+const { getSEOSuggestionsWithFallback } = require("../utils/suggestionFetcher"); // Updated import
+const { fetchWithFallback } = require("../utils/keywordSuggester"); // Updated import
 const { jsonrepair } = require("jsonrepair");
 const Content = require("../models/Content");
 const User = require("../models/User");
 const { ensureAuthenticated } = require("../middleware/auth");
-const { ensureBusinessRole } = require('../middleware/businessAccess');
+const { ensureBusinessRole } = require("../middleware/businessAccess");
 const { logAndEmitError } = require("../socket");
 
 const openai = new OpenAI({
@@ -22,7 +23,7 @@ const cache = new Map();
 // Step 1: Fetch businesses for the initial form
 router.get("/branding-article", async (req, res) => {
   try {
-    const businesses = await Business.find({}, 'companyName');
+    const businesses = await Business.find({}, "companyName");
     res.json({ businesses, error: null });
   } catch (error) {
     console.error("Error fetching businesses:", error);
@@ -69,7 +70,126 @@ router.get("/content-details", ensureAuthenticated, async (req, res) => {
     const response = { business: businessDetails };
 
     if (businessDetails.focusService) {
-      const suggestions = await suggestKeywordsWithPerplexity(businessDetails);
+      const suggestionPrompt = `
+Analyze the following business and provide SEO content suggestions in plain text with key-value pairs (e.g., key: value):
+- primaryKeywords: 3 comma-separated keywords
+- secondaryKeywords: 3 comma-separated keywords
+- keyPoints: 3 comma-separated points
+- uniqueBusinessGoal: one sentence
+- specificChallenge: one sentence
+- personalAnecdote: one sentence
+- cta: one sentence
+- specificInstructions: one sentence
+- topH2s: comma-separated H2s from competitors
+- metaDescriptions: comma-separated meta descriptions
+- snippetSummaries: comma-separated snippet summaries
+- contentGaps: comma-separated gaps
+- stats: fact-source pairs separated by semicolons
+- faqs: question-answer pairs separated by semicolons, questions and answers separated by |
+- snippetQuestion: one question
+- snippetFormat: one format (e.g., paragraph, list)
+- clusters: comma-separated subtopics
+- entities: name-description pairs separated by semicolons, names and descriptions separated by |
+
+Business Details:
+- Company Name: ${businessDetails.companyName}
+- Description: ${businessDetails.description}
+- Services: ${businessDetails.services}
+- Focus Service: ${businessDetails.focusService}
+- Target Audience: ${businessDetails.targetAudience}
+- Brand Tone: ${businessDetails.brandTone}
+`;
+      const suggestionResponse = await getSEOSuggestionsWithFallback(suggestionPrompt);
+      const suggestionsText = suggestionResponse.text;
+
+      // Parse the plain text response into the expected suggestions object
+      const suggestions = {};
+      const lines = suggestionsText.split("\n").map((line) => line.trim());
+      for (const line of lines) {
+        const [key, value] = line.split(": ").map((part) => part.trim());
+        if (!key || !value) continue;
+
+        switch (key.toLowerCase()) {
+          case "primarykeywords":
+            suggestions.primaryKeywords = value.split(",").map((kw) => kw.trim());
+            break;
+          case "secondarykeywords":
+            suggestions.secondaryKeywords = value.split(",").map((kw) => kw.trim());
+            break;
+          case "keypoints":
+            suggestions.keyPoints = value.split(",").map((kp) => kp.trim());
+            break;
+          case "uniquebusinessgoal":
+            suggestions.uniqueBusinessGoal = value;
+            break;
+          case "specificchallenge":
+            suggestions.specificChallenge = value;
+            break;
+          case "personalanecdote":
+            suggestions.personalAnecdote = value;
+            break;
+          case "cta":
+            suggestions.cta = value;
+            break;
+          case "specificinstructions":
+            suggestions.specificInstructions = value;
+            break;
+          case "toph2s":
+            suggestions.competitiveData = suggestions.competitiveData || {};
+            suggestions.competitiveData.topH2s = value;
+            break;
+          case "metadescriptions":
+            suggestions.competitiveData = suggestions.competitiveData || {};
+            suggestions.competitiveData.metaDescriptions = value;
+            break;
+          case "snippetsummaries":
+            suggestions.competitiveData = suggestions.competitiveData || {};
+            suggestions.competitiveData.snippetSummaries = value;
+            break;
+          case "contentgaps":
+            suggestions.competitiveData = suggestions.competitiveData || {};
+            suggestions.competitiveData.contentGaps = value;
+            break;
+          case "stats":
+            suggestions.stats = Object.fromEntries(
+              value.split(";").map((stat) => {
+                const [fact, source] = stat.split("-").map((s) => s.trim());
+                return [fact, source];
+              })
+            );
+            break;
+          case "faqs":
+            suggestions.faqs = Object.fromEntries(
+              value.split(";").map((faq) => {
+                const [q, a] = faq.split("|").map((s) => s.trim());
+                return [q, a];
+              })
+            );
+            break;
+          case "snippetquestion":
+            suggestions.snippetData = suggestions.snippetData || {};
+            suggestions.snippetData.question = value;
+            break;
+          case "snippetformat":
+            suggestions.snippetData = suggestions.snippetData || {};
+            suggestions.snippetData.format = value;
+            break;
+          case "clusters":
+            suggestions.clusters = Object.fromEntries(
+              value.split(",").map((cluster) => [cluster.trim(), ""])
+            );
+            break;
+          case "entities":
+            suggestions.entities = Object.fromEntries(
+              value.split(";").map((entity) => {
+                const [name, desc] = entity.split("|").map((s) => s.trim());
+                return [name, desc];
+              })
+            );
+            break;
+        }
+      }
+
       response.suggestedPrimaryKeywords = suggestions.primaryKeywords;
       response.suggestedSecondaryKeywords = suggestions.secondaryKeywords;
       response.suggestedKeyPoints = suggestions.keyPoints;
@@ -149,11 +269,11 @@ router.post("/fetch-suggestions", ensureAuthenticated, async (req, res) => {
       _id: businessId,
       $or: [
         { owner: req.user._id },
-        { 'members.user': req.user._id },
+        { "members.user": req.user._id },
       ],
     });
     if (!business) {
-      return res.status(404).json({ error: 'Business not found' });
+      return res.status(404).json({ error: "Business not found" });
     }
 
     business.focusService = focusService;
@@ -173,7 +293,125 @@ router.post("/fetch-suggestions", ensureAuthenticated, async (req, res) => {
       companyWebsite: business.companyWebsite,
     };
 
-    const suggestions = await suggestKeywordsWithPerplexity(businessDetails);
+    const suggestionPrompt = `
+Analyze the following business and provide SEO content suggestions in plain text with key-value pairs (e.g., key: value):
+- primaryKeywords: 3 comma-separated keywords
+- secondaryKeywords: 3 comma-separated keywords
+- keyPoints: 3 comma-separated points
+- uniqueBusinessGoal: one sentence
+- specificChallenge: one sentence
+- personalAnecdote: one sentence
+- cta: one sentence
+- specificInstructions: one sentence
+- topH2s: comma-separated H2s from competitors
+- metaDescriptions: comma-separated meta descriptions
+- snippetSummaries: comma-separated snippet summaries
+- contentGaps: comma-separated gaps
+- stats: fact-source pairs separated by semicolons
+- faqs: question-answer pairs separated by semicolons, questions and answers separated by |
+- snippetQuestion: one question
+- snippetFormat: one format (e.g., paragraph, list)
+- clusters: comma-separated subtopics
+- entities: name-description pairs separated by semicolons, names and descriptions separated by |
+
+Business Details:
+- Company Name: ${businessDetails.companyName}
+- Description: ${businessDetails.description}
+- Services: ${businessDetails.services}
+- Focus Service: ${businessDetails.focusService}
+- Target Audience: ${businessDetails.targetAudience}
+- Brand Tone: ${businessDetails.brandTone}
+`;
+    const suggestionResponse = await getSEOSuggestionsWithFallback(suggestionPrompt);
+    const suggestionsText = suggestionResponse.text;
+
+    // Parse the plain text response into the expected suggestions object
+    const suggestions = {};
+    const lines = suggestionsText.split("\n").map((line) => line.trim());
+    for (const line of lines) {
+      const [key, value] = line.split(": ").map((part) => part.trim());
+      if (!key || !value) continue;
+
+      switch (key.toLowerCase()) {
+        case "primarykeywords":
+          suggestions.primaryKeywords = value.split(",").map((kw) => kw.trim());
+          break;
+        case "secondarykeywords":
+          suggestions.secondaryKeywords = value.split(",").map((kw) => kw.trim());
+          break;
+        case "keypoints":
+          suggestions.keyPoints = value.split(",").map((kp) => kp.trim());
+          break;
+        case "uniquebusinessgoal":
+          suggestions.uniqueBusinessGoal = value;
+          break;
+        case "specificchallenge":
+          suggestions.specificChallenge = value;
+          break;
+        case "personalanecdote":
+          suggestions.personalAnecdote = value;
+          break;
+        case "cta":
+          suggestions.cta = value;
+          break;
+        case "specificinstructions":
+          suggestions.specificInstructions = value;
+          break;
+        case "toph2s":
+          suggestions.competitiveData = suggestions.competitiveData || {};
+          suggestions.competitiveData.topH2s = value;
+          break;
+        case "metadescriptions":
+          suggestions.competitiveData = suggestions.competitiveData || {};
+          suggestions.competitiveData.metaDescriptions = value;
+          break;
+        case "snippetsummaries":
+          suggestions.competitiveData = suggestions.competitiveData || {};
+          suggestions.competitiveData.snippetSummaries = value;
+          break;
+        case "contentgaps":
+          suggestions.competitiveData = suggestions.competitiveData || {};
+          suggestions.competitiveData.contentGaps = value;
+          break;
+        case "stats":
+          suggestions.stats = Object.fromEntries(
+            value.split(";").map((stat) => {
+              const [fact, source] = stat.split("-").map((s) => s.trim());
+              return [fact, source];
+            })
+          );
+          break;
+        case "faqs":
+          suggestions.faqs = Object.fromEntries(
+            value.split(";").map((faq) => {
+              const [q, a] = faq.split("|").map((s) => s.trim());
+              return [q, a];
+            })
+          );
+          break;
+        case "snippetquestion":
+          suggestions.snippetData = suggestions.snippetData || {};
+          suggestions.snippetData.question = value;
+          break;
+        case "snippetformat":
+          suggestions.snippetData = suggestions.snippetData || {};
+          suggestions.snippetData.format = value;
+          break;
+        case "clusters":
+          suggestions.clusters = Object.fromEntries(
+            value.split(",").map((cluster) => [cluster.trim(), ""])
+          );
+          break;
+        case "entities":
+          suggestions.entities = Object.fromEntries(
+            value.split(";").map((entity) => {
+              const [name, desc] = entity.split("|").map((s) => s.trim());
+              return [name, desc];
+            })
+          );
+          break;
+      }
+    }
 
     res.json({
       suggestedPrimaryKeywords: suggestions.primaryKeywords,
@@ -231,6 +469,7 @@ router.post(
       // Check free trial or subscription (bypass in development)
       if (
         process.env.NODE_ENV !== "development" &&
+        !user.isEditEdgeUser && // Add this condition
         user.subscription === "None" &&
         user.freeTrialUsed
       ) {
@@ -295,129 +534,216 @@ router.post(
       };
 
       // Fetch suggestions including all data for tweaks
-      const suggestions = await suggestKeywordsWithPerplexity(businessData);
+      const suggestionPrompt = `
+Analyze the following business and provide SEO content suggestions in plain text with key-value pairs (e.g., key: value):
+- primaryKeywords: 3 comma-separated keywords
+- secondaryKeywords: 3 comma-separated keywords
+- keyPoints: 3 comma-separated points
+- uniqueBusinessGoal: one sentence
+- specificChallenge: one sentence
+- personalAnecdote: one sentence
+- cta: one sentence
+- specificInstructions: one sentence
+- topH2s: comma-separated H2s from competitors
+- metaDescriptions: comma-separated meta descriptions
+- snippetSummaries: comma-separated snippet summaries
+- contentGaps: comma-separated gaps
+- stats: fact-source pairs separated by semicolons
+- faqs: question-answer pairs separated by semicolons, questions and answers separated by |
+- snippetQuestion: one question
+- snippetFormat: one format (e.g., paragraph, list)
+- clusters: comma-separated subtopics
+- entities: name-description pairs separated by semicolons, names and descriptions separated by |
+
+Business Details:
+- Company Name: ${businessData.companyName}
+- Description: ${businessData.description}
+- Services: ${businessData.services}
+- Focus Service: ${businessData.focusService}
+- Target Audience: ${businessData.targetAudience}
+- Brand Tone: ${businessData.brandTone}
+`;
+      const suggestionResponse = await getSEOSuggestionsWithFallback(suggestionPrompt);
+      const suggestionsText = suggestionResponse.text;
+
+      // Parse the plain text response into the expected suggestions object
+      const suggestions = {};
+      const lines = suggestionsText.split("\n").map((line) => line.trim());
+      for (const line of lines) {
+        const [key, value] = line.split(": ").map((part) => part.trim());
+        if (!key || !value) continue;
+
+        switch (key.toLowerCase()) {
+          case "primarykeywords":
+            suggestions.primaryKeywords = value.split(",").map((kw) => kw.trim());
+            break;
+          case "secondarykeywords":
+            suggestions.secondaryKeywords = value.split(",").map((kw) => kw.trim());
+            break;
+          case "keypoints":
+            suggestions.keyPoints = value.split(",").map((kp) => kp.trim());
+            break;
+          case "uniquebusinessgoal":
+            suggestions.uniqueBusinessGoal = value;
+            break;
+          case "specificchallenge":
+            suggestions.specificChallenge = value;
+            break;
+          case "personalanecdote":
+            suggestions.personalAnecdote = value;
+            break;
+          case "cta":
+            suggestions.cta = value;
+            break;
+          case "specificinstructions":
+            suggestions.specificInstructions = value;
+            break;
+          case "toph2s":
+            suggestions.competitiveData = suggestions.competitiveData || {};
+            suggestions.competitiveData.topH2s = value;
+            break;
+          case "metadescriptions":
+            suggestions.competitiveData = suggestions.competitiveData || {};
+            suggestions.competitiveData.metaDescriptions = value;
+            break;
+          case "snippetsummaries":
+            suggestions.competitiveData = suggestions.competitiveData || {};
+            suggestions.competitiveData.snippetSummaries = value;
+            break;
+          case "contentgaps":
+            suggestions.competitiveData = suggestions.competitiveData || {};
+            suggestions.competitiveData.contentGaps = value;
+            break;
+          case "stats":
+            suggestions.stats = Object.fromEntries(
+              value.split(";").map((stat) => {
+                const [fact, source] = stat.split("-").map((s) => s.trim());
+                return [fact, source];
+              })
+            );
+            break;
+          case "faqs":
+            suggestions.faqs = Object.fromEntries(
+              value.split(";").map((faq) => {
+                const [q, a] = faq.split("|").map((s) => s.trim());
+                return [q, a];
+              })
+            );
+            break;
+          case "snippetquestion":
+            suggestions.snippetData = suggestions.snippetData || {};
+            suggestions.snippetData.question = value;
+            break;
+          case "snippetformat":
+            suggestions.snippetData = suggestions.snippetData || {};
+            suggestions.snippetData.format = value;
+            break;
+          case "clusters":
+            suggestions.clusters = Object.fromEntries(
+              value.split(",").map((cluster) => [cluster.trim(), ""])
+            );
+            break;
+          case "entities":
+            suggestions.entities = Object.fromEntries(
+              value.split(";").map((entity) => {
+                const [name, desc] = entity.split("|").map((s) => s.trim());
+                return [name, desc];
+              })
+            );
+            break;
+        }
+      }
 
       // Define slugify for Tweak 5 (if not already available)
       const slugify = (str) => str.toLowerCase().replace(/\s+/g, "-");
 
-      const contentPrompt = `
-You are a top-tier SEO content strategist. Generate a highly optimized blog article as a JSON object for the provided business details. All fields must be fully AI-generated based on the input, with no hardcoded fallbacks. The content must be SEO-optimized, engaging, and at least 1200-1500 words long.
+      // Apply ChatGPT's prompt exactly as provided
+      const businessContext = `
+Company Name: ${businessData.companyName}
+Description: ${businessData.description}
+Services: ${businessData.services}
+Focus Service: ${businessData.focusService}
+Target Audience: ${businessData.targetAudience}
+Tone: ${businessData.brandTone}
+Persona Style: "Natural and Human-like"
+Topic: ${keyword || suggestions.primaryKeywords?.[0]}
+Key Message: ${keyPoints?.join(", ") || suggestions.keyPoints?.join(", ")}
+Ad/Promo Details: ${cta || suggestions.cta}
+Goal: ${uniqueBusinessGoal || suggestions.uniqueBusinessGoal}
+Content Pillar: ${focusService || businessData.focusService}
+Challenge: ${specificChallenge || suggestions.specificChallenge}
+Business Goal: ${uniqueBusinessGoal || suggestions.uniqueBusinessGoal}
+Personal Anecdote: ${personalAnecdote || suggestions.personalAnecdote}
+Primary Keyword: ${keyword || suggestions.primaryKeywords?.[0]}
+Secondary Keywords: ${secondaryKeywords?.join(", ") || suggestions.secondaryKeywords?.join(", ")}
+Stats: ${Object.entries(suggestions.stats || {}).map(([fact, source]) => `${fact} - ${source}`).join(", ")}
+FAQs: ${Object.entries(suggestions.faqs || {}).map(([q, a]) => `${q}: ${a}`).join(" | ")}
+Related Subtopics: ${Object.keys(suggestions.clusters || {}).join(", ")}
+Featured Snippet Target: ${suggestions.snippetData?.question || "N/A"} - ${suggestions.snippetData?.format || "paragraph"}
+Trusted Tools/Entities: ${Object.entries(suggestions.entities || {}).map(([name, desc]) => `${name} (${desc})`).join(", ")}
+Specific Instructions: ${specificInstructions || suggestions.specificInstructions}
+`;
 
-**Business Details:**
-- Company Name: ${businessData.companyName || "Edit Edge Multimedia"}
-- Description: ${businessData.description || "A multimedia company specializing in innovative digital solutions"}
-- Services: ${businessData.services || "video editing, graphic design, 3D art, web development, digital marketing"}
-- Focus Service: ${businessData.focusService || "Digital Marketing"}
-- Target Audience: ${businessData.targetAudience || "e-commerce businesses and SaaS startups"}
-- Brand Tone: ${businessData.brandTone || "professional yet conversational"}
-- Primary Keyword: ${keyword || suggestions.primaryKeywords[0] || "digital marketing for e-commerce"}
-- Secondary Keywords: ${secondaryKeywords?.join(", ") || suggestions.secondaryKeywords.join(", ") || "real estate marketing strategies, e-commerce growth, social media marketing"}
-- Article Length: ${articleLength || "1200-1500 words"}
-- Key Points: ${keyPoints?.join(", ") || suggestions.keyPoints.join(", ") || "Increase visibility, Boost conversions, Enhance trust"}
-- CTA: ${cta || suggestions.cta || "Contact Edit Edge Multimedia to skyrocket your online presence!"}
-- Unique Business Goal: ${uniqueBusinessGoal || suggestions.uniqueBusinessGoal || "Increase conversion rates through engaging digital strategies"}
-- Specific Challenge: ${specificChallenge || suggestions.specificChallenge || "Overcoming low online visibility in competitive markets"}
-- Personal Anecdote: ${personalAnecdote || suggestions.personalAnecdote || "A client saw a 50% sales boost after our digital marketing overhaul"}
-- Specific AI Instructions: ${specificInstructions || suggestions.specificInstructions || "No specific instructions provided."}
+      const seoPrompt = `
+You are a professional SEO strategist and content writer. Based on the business context above, generate a high-performing blog article in valid **escaped JSON format**.
 
-**Competitive Analysis (Tweak 1):**
-- Top H2s from competitors: ${suggestions.competitiveData.topH2s || "N/A"}
-- Meta Descriptions: ${suggestions.competitiveData.metaDescriptions || "N/A"}
-- Snippet Summaries: ${suggestions.competitiveData.snippetSummaries || "N/A"}
-- Content Gaps: ${suggestions.competitiveData.contentGaps || "N/A"}
-Your article must outperform these pages. Cover the gaps: [${suggestions.competitiveData.contentGaps || "N/A"}]. Avoid repeating: [${suggestions.competitiveData.snippetSummaries || "N/A"}]. Add unique insights.
+🎯 Goals:
+- Rank on Google for the topic: "${keyword || suggestions.primaryKeywords?.[0]}"
+- Engage ${businessData.targetAudience}
+- Convert interest into action for: "${businessData.focusService}"
 
-**Real Stats (Tweak 2):**
-- Stats: ${Object.entries(suggestions.stats || {}).map(([fact, source]) => `${fact} - ${source}`).join(", ") || "N/A"}
-Include these stats with citations in the article (e.g., "According to [source], [fact]").
+🧠 Writing Guidelines:
+- Write a unique, non-templated, original blog (1200–1500 words)
+- Use the primary keyword 5–7 times (naturally)
+- Use secondary keywords contextually (2–3 times each)
+- Mention the business name 3–5 times
+- Reference input stats (with source)
+- Include subheadings (H2/H3) optimized for long-tail queries and snippet visibility
+- Include 3–5 internal links using natural anchor text
+- Include 1–2 external references (tools, sources, experts)
+- Add a "Key Takeaways" section using bullet points
+- Add a natural FAQ section using the FAQ input
+- End with a clear CTA aligned to the business goal
+- Use the selected tone/persona to influence voice and flow
 
-**FAQs (Tweak 3):**
-- Real Questions: ${Object.entries(suggestions.faqs || {}).map(([q, a]) => `${q}: ${a}`).join(", ") || "N/A"}
-Include these real questions and answers in the FAQs section.
-
-**Featured Snippet Optimization (Tweak 4):**
-- Snippet Format: ${suggestions.snippetData?.format || "paragraph"}
-- Snippet Question: ${suggestions.snippetData?.question || "N/A"}
-Structure section 2 as a ${suggestions.snippetData?.format || "paragraph"} answering "${suggestions.snippetData?.question || "N/A"}" to maximize snippet potential.
-
-**Topic Clusters (Tweak 5):**
-- Related Subtopics: ${Object.keys(suggestions.clusters || {}).join(", ") || "N/A"}
-Include references to related articles like: ${Object.keys(suggestions.clusters || {}).map((title) => `/blog/${slugify(title)}`).join(", ") || "N/A"}.
-
-**Entity Enrichment (Tweak 6):**
-- Trending Tools or Leaders: ${Object.entries(suggestions.entities || {}).map(([name, desc]) => `${name} (${desc})`).join(", ") || "N/A"}
-Quote tools or mention experts like: [${Object.keys(suggestions.entities || {}).join(", ") || "N/A"}] to improve authority.
-
-**SEO Guidelines:**
-- Use the primary keyword ("${keyword || suggestions.primaryKeywords[0] || "digital marketing for e-commerce"}") 5-7 times naturally across the article, including:
-  - Within the first 100 words of the introduction.
-  - At least 2-3 times in the body (sections).
-  - In at least one subheading.
-- Incorporate secondary keywords ("${secondaryKeywords?.join(", ") || suggestions.secondaryKeywords.join(", ") || "real estate marketing strategies, e-commerce growth, social media marketing"}") 2-3 times each where relevant.
-- Optimize for Google Featured Snippets with concise, question-based subheadings and bullet points.
-- Mention the company name 3-5 times naturally.
-- Include 3-5 internal links (e.g., /services/[focus-service], /about, /contact).
-- Ensure readability: Use a conversational tone, short sentences, and bullet points where applicable.
-- Add image suggestions with SEO-optimized alt text (e.g., "Digital marketing infographic for e-commerce growth").
-
-**Specific AI Instructions:**
-- Follow the specific instructions provided: "${specificInstructions || suggestions.specificInstructions || "No specific instructions provided."}"
-- If specific instructions are provided, ensure the content structure adheres to them.
-
-**Output Format (JSON):**
+⚙️ Output Format (JSON Only – No Markdown):
 {
-  "title": "SEO-optimized title (under 60 chars) with primary keyword",
-  "metaDescription": "150-160 char SEO meta description with primary keyword",
-  "proposedUrl": "/[focus-service]-[target-audience]-[secondary-keyword], e.g., /digital-marketing-ecommerce-growth",
-  "introduction": "250-300 word intro addressing the specific challenge, using primary keyword in first 100 words",
+  "title": "SEO headline under 60 characters with primary keyword",
+  "metaDescription": "150-160 character SEO meta with primary keyword",
+  "proposedUrl": "/[focus-service]-[topic]-[audience]",
+  "introduction": "250-300 word intro addressing the user pain point, using the primary keyword",
   "sections": [
     {
-      "heading": "H2 with primary or secondary keyword",
-      "subheadings": ["H3 with keyword or question", "H3 with keyword or question"],
-      "content": ["300-400 words with keyword usage, stats, or examples", "300-400 words with keyword usage"]
+      "heading": "H2 optimized for long-tail keyword",
+      "subheadings": ["H3 variation", "H3 actionable"],
+      "content": ["300-400 words per subheading"]
     },
     {
-      "heading": "H2 targeting secondary keyword or real-world example",
-      "subheadings": ["H3 with actionable tip", "H3 with data insight"],
-      "content": ["300-400 words with case study or anecdote", "300-400 words with bullet points"]
+      "heading": "H2 with case study or success insight",
+      "subheadings": ["H3 with anecdote", "H3 with lesson learned"],
+      "content": ["Real-world proof points or client win story"]
     }
   ],
-  "keyTakeaways": ["Point 1 with keyword", "Point 2 with keyword", "Point 3"],
+  "keyTakeaways": ["Bullet 1", "Bullet 2", "Bullet 3"],
   "faqs": [
-    {"question": "Question with primary keyword", "answer": "150-200 word answer with keyword"},
-    {"question": "Question with secondary keyword", "answer": "150-200 word answer with keyword"},
-    {"question": "Conversational question", "answer": "150-200 word answer"},
-    {"question": "Conversational question", "answer": "150-200 word answer"}
+    {"question": "Keyword-rich question", "answer": "150-200 words"},
+    {"question": "Keyword-rich question", "answer": "150-200 words"},
+    {"question": "Conversational question", "answer": "150-200 words"}
   ],
-  "conclusion": "250-300 word conclusion reinforcing focus service, with primary keyword and CTA",
-  "internalLinks": ["/services/[focus-service]", "/about", "/contact", "/blog/[related-topic]"],
-  "schemaMarkup": "Valid JSON-LD string for Article schema, with escaped quotes",
+  "conclusion": "Summarize benefits, re-emphasize focus service, use a CTA",
+  "internalLinks": ["/services/${slugify(businessData.focusService)}", "/about", "/contact", "/blog/${slugify(keyword || suggestions.primaryKeywords?.[0])}"],
+  "schemaMarkup": "Valid escaped JSON-LD string with headline, description, datePublished, author",
   "images": []
 }
 
-**Structure:**
-1. Introduction: Address the specific challenge with primary keyword early, following the specific AI instructions if provided.
-2. Section 1: How [Focus Service] Drives [Target Audience] Success (keyword-rich).
-3. Section 2: Optimizing [Secondary Keyword] for Growth (snippet-optimized).
-4. Section 3: Real-World Success: Case Study (use personal anecdote).
-5. Section 4: Tools and Strategies for [Focus Service] (data-driven insights).
-6. Conclusion: Reinforce benefits with CTA.
-7. Key Takeaways: Bullet points with keywords.
-8. FAQs: 4 keyword-rich, conversational questions from Tweak 3.
-9. Schema Markup: Article schema only.
-10. Images: Leave the "images" array empty.
-
-**Instructions:**
-- Return a valid JSON object with no backticks, markdown, or extra text.
-- Use straight quotes (") and escape all internal quotes with \\ (e.g., "She said \\"yes\\"").
-- Ensure all fields, including "schemaMarkup", are properly formatted as valid JSON strings with escaped quotes.
-- Ensure "schemaMarkup" is a complete and valid JSON-LD string for Article schema only, properly closed with all braces.
-- Ensure there are no trailing commas in any JSON object or array.
-- Ensure content is 1200-1500 words total across sections.
-- Include stats, examples, or step-by-step tips to add depth.
-- "schemaMarkup" must be a single-line string with escaped quotes.
-- Set the "images" array to an empty array: "images": [].
+💥 IMPORTANT:
+- Do NOT wrap output in markdown or backticks.
+- Use escaped quotes (e.g. \\"example\\") for all string values inside the JSON.
+- No trailing commas.
+- No additional commentary outside of the JSON.
 `;
+
+      const contentPrompt = `${businessContext}\n\n${seoPrompt}`;
 
       let generatedContent;
       let attempts = 0;
@@ -582,7 +908,6 @@ Quote tools or mention experts like: [${Object.keys(suggestions.entities || {}).
   }
 );
 
-
 // Step 6: Save business details prompt
 router.get("/save-details-prompt", (req, res) => {
   if (!req.session.tempBusinessDetails) {
@@ -594,11 +919,9 @@ router.get("/save-details-prompt", (req, res) => {
   });
 });
 
-
-
 // Step 8: Display generated article
 router.get("/generated-article", (req, res) => {
-  console.log('Fetching generated content from session:', req.session.generatedContent);
+  console.log("Fetching generated content from session:", req.session.generatedContent);
   if (!req.session.generatedContent) {
     return res.status(400).json({ redirect: "/blog-article/branding-article" });
   }
@@ -616,7 +939,7 @@ router.get("/generate-new-content", (req, res) => {
       companyName: req.session.businessDetails.companyName,
       description: req.session.businessDetails.description || "",
       services: req.session.businessDetails.services || "",
-      targetAudience: req.session.businessDetails.targetAudience || "", // Updated to targetAudience
+      targetAudience: req.session.businessDetails.targetAudience || "",
       brandTone: req.session.businessDetails.brandTone || "",
       keyword: "",
       isRegistered: true,
@@ -627,7 +950,7 @@ router.get("/generate-new-content", (req, res) => {
       companyName: req.session.tempBusinessDetails.companyName,
       description: req.session.tempBusinessDetails.description || "",
       services: req.session.tempBusinessDetails.services || "",
-      targetAudience: req.session.tempBusinessDetails.targetAudience || "", // Updated to targetAudience
+      targetAudience: req.session.tempBusinessDetails.targetAudience || "",
       brandTone: req.session.tempBusinessDetails.brandTone || "",
       keyword: req.session.tempBusinessDetails.keyword || "",
       isRegistered: false,

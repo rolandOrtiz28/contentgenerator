@@ -3,14 +3,13 @@ const express = require("express");
 const app = express();
 const cors = require("cors");
 
-
 app.use(cors({
   origin: (origin, callback) => {
     const allowedOrigins = [
       "http://localhost:8080",
       "https://content.editedgemultimedia.com",
       "https://app-aagi02dfpgs.canva-apps.com",
-      "https://ai.editedgemultimedia.com"
+      "https://ai.editedgemultimedia.com",
     ];
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
@@ -21,7 +20,7 @@ app.use(cors({
   credentials: true,
 }));
 
-app.options('*', cors());   
+app.options('*', cors());
 
 app.use((req, res, next) => {
   res.on('finish', () => {
@@ -34,9 +33,7 @@ app.use((req, res, next) => {
   next();
 });
 
-
 const bodyParser = require("body-parser");
-const OpenAI = require("openai");
 const session = require("express-session");
 const MongoDBStore = require("connect-mongodb-session")(session);
 const mongoose = require("mongoose");
@@ -44,34 +41,26 @@ const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const xss = require("xss-clean");
 const mongoSanitize = require("express-mongo-sanitize");
-const { Server } = require("socket.io");
-const socketServer = require('./socket');
 
-const passport = require('passport');
+const passport = require("passport");
 
-const billingWebhookRoute = require('./routes/billing-webhook');
-const socialMediaRoute = require('./routes/socialMediaContent');
-const articleBlogRoute = require('./routes/articleBlogContent');
-const businessRoute = require('./routes/business');
-const contentRoutes = require('./routes/content');
-const userRoutes = require('./routes/user');
-const authRoute = require('./routes/auth');
-const billingRoutes = require('./routes/billing');
-const imageRoutes = require('./routes/imageRoutes');
-const adminRoutes = require('./routes/admin');
+const billingWebhookRoute = require("./routes/billing-webhook");
+const socialMediaRoute = require("./routes/socialMediaContent");
+const articleBlogRoute = require("./routes/articleBlogContent");
+const businessRoute = require("./routes/business");
+const contentRoutes = require("./routes/content");
+const userRoutes = require("./routes/user");
+const authRoute = require("./routes/auth");
+const billingRoutes = require("./routes/billing");
+const imageRoutes = require("./routes/imageRoutes");
+const adminRoutes = require("./routes/admin");
 
-require('./config/passport'); // Initialize Passport
-
+require("./config/passport"); // Initialize Passport
 
 const PORT = process.env.PORT || 3000;
-
 const secret = process.env.SESSION_SECRET || "default-secret-please-change-me";
 const dbUrl = process.env.DB_URL;
-// || "mongodb://127.0.0.1:27017/aicontentgenerator"
 const isProduction = process.env.NODE_ENV === "production";
-
-
-
 
 // Security Headers (Helmet)
 const frameSrcUrls = [
@@ -180,30 +169,29 @@ app.use(
 // Rate Limiting
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: process.env.NODE_ENV === 'production' ? 100 : 1000,
+  max: process.env.NODE_ENV === "production" ? 100 : 1000,
   message: "Too many requests from this IP, please try again later.",
 });
 
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: process.env.NODE_ENV === 'production' ? 50 : 500,
+  max: process.env.NODE_ENV === "production" ? 50 : 500,
   message: "Too many API requests from this IP, please try again later.",
 });
 
-// Apply rate limiting to non-webhook routes
 app.use((req, res, next) => {
-  if (req.path.startsWith('/api/billing/webhook')) {
-    return next(); // Skip rate limiting for webhook
+  if (req.path.startsWith("/api/billing/webhook")) {
+    return next();
   }
-  if (req.path.startsWith('/socket.io/')) {
+  if (req.path.startsWith("/socket.io/")) {
     return next();
   }
   generalLimiter(req, res, next);
 });
 
-app.use('/api/', (req, res, next) => {
-  if (req.path.startsWith('/billing/webhook')) {
-    return next(); // Skip API limiter for webhook
+app.use("/api/", (req, res, next) => {
+  if (req.path.startsWith("/billing/webhook")) {
+    return next();
   }
   apiLimiter(req, res, next);
 });
@@ -213,15 +201,14 @@ app.use(xss());
 app.use(mongoSanitize());
 
 // Mount the webhook route at the very top, before any other middleware
-app.use('/api/billing/webhook', billingWebhookRoute);
+app.use("/api/billing/webhook", billingWebhookRoute);
 
 // Database Connection
 mongoose.connect(dbUrl, {
   serverSelectionTimeoutMS: 5000,
   connectTimeoutMS: 10000,
   socketTimeoutMS: 45000,
-})
-  .then(() => console.log("✅ Database Connected"))
+}).then(() => console.log("✅ Database Connected"))
   .catch((err) => {
     console.error("❌ MongoDB Connection Error:", err);
     process.exit(1);
@@ -265,21 +252,18 @@ app.use(
   })
 );
 
-// Add logging to verify session middleware
 app.use((req, res, next) => {
   console.log(`[REQ] ${req.method} ${req.originalUrl}`);
   next();
 });
 
-
 // Initialize Passport
 app.use(passport.initialize());
 app.use(passport.session());
 
-// Verify Passport session setup
 app.use((req, res, next) => {
-  console.log('Passport middleware - User:', req.user?.name || 'Not Logged In');
-  console.log('Passport middleware - Authenticated:', req.isAuthenticated?.() || false);
+  console.log("Passport middleware - User:", req.user?.name || "Not Logged In");
+  console.log("Passport middleware - Authenticated:", req.isAuthenticated?.() || false);
   next();
 });
 
@@ -298,31 +282,20 @@ app.use((req, res, next) => {
   next();
 });
 
-// OpenAI Setup
-let openai;
-try {
-  openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-  });
-  console.log("✅ OpenAI Initialized");
-} catch (error) {
-  console.error("❌ Failed to initialize OpenAI:", error);
-}
-
 // API Routes
-app.use('/api/auth', authRoute);
-app.use('/api/social-media', socialMediaRoute);
-app.use('/api/blog-article', articleBlogRoute);
-app.use('/api/business', businessRoute);
-app.use('/api/content', contentRoutes);
-app.use('/api/user', userRoutes);
-app.use('/api/billing', billingRoutes);
-app.use('/api/images', imageRoutes);
-app.use('/api/admin', adminRoutes);
+app.use("/api/auth", authRoute);
+app.use("/api/social-media", socialMediaRoute);
+app.use("/api/blog-article", articleBlogRoute);
+app.use("/api/business", businessRoute);
+app.use("/api/content", contentRoutes);
+app.use("/api/user", userRoutes);
+app.use("/api/billing", billingRoutes);
+app.use("/api/images", imageRoutes);
+app.use("/api/admin", adminRoutes);
 
 app.use("*", (req, res) => {
   const message = `404 Not Found: ${req.method} ${req.originalUrl}`;
-  console.error(message); // This triggers emitLog
+  console.error(message);
   res.status(404).json({ error: "Not Found" });
 });
 
@@ -332,19 +305,20 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: "Something went wrong!" });
 });
 
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('🔥 Unhandled Rejection at:', promise, 'reason:', reason);
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("🔥 Unhandled Rejection at:", promise, "reason:", reason);
 });
+
 // Start Server
 const server = app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
+  console.log(`Server is running on port ${PORT} in ${process.env.NODE_ENV || "development"} mode`);
 });
 
+// Initialize Socket.IO before console overrides
 const io = require("./socket").init(server);
-const { emitLog } = require("./socket"); // Import emitLog
 
 // Override console methods to emit logs via Socket.IO
+const { emitLog } = require("./socket");
 const originalConsoleLog = console.log;
 const originalConsoleError = console.error;
 const originalConsoleWarn = console.warn;
@@ -366,12 +340,13 @@ console.warn = (...args) => {
   emitLog(`WARN: ${message}`);
   originalConsoleWarn(...args);
 };
+
 // Graceful Shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received: closing server');
+process.on("SIGTERM", () => {
+  console.log("SIGTERM received: closing server");
   server.close(() => {
     mongoose.connection.close();
-    console.log('Server closed');
+    console.log("Server closed");
     process.exit(0);
   });
 });

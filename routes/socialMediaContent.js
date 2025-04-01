@@ -176,8 +176,12 @@ router.post("/generate-content-social", ensureAuthenticated, ensureBusinessRole(
     const socialMediaLimits = { Basic: 3, Pro: 5, Enterprise: 15 };
     const userSocialMediaLimit = socialMediaLimits[user.subscription] || 0;
 
-    if (process.env.NODE_ENV !== "development" && user.subscription === "None" && user.freeTrialUsed) {
-      console.log("Free trial used for user:", user._id);
+    if (
+      process.env.NODE_ENV !== "development" &&
+      !user.isEditEdgeUser && // Add this condition
+      user.subscription === "None" &&
+      user.freeTrialUsed
+    ) {
       return res.status(403).json({
         error: "You have already used your free trial. Please subscribe to continue.",
         redirect: "/subscribe",

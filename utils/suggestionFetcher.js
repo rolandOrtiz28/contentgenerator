@@ -1,4 +1,4 @@
-// suggestionFetcher.js
+// utils/suggestionFetcher.js
 const { OpenAI } = require("openai");
 const axios = require("axios");
 
@@ -58,7 +58,7 @@ const getSuggestionsWithFallback = async (prompt) => {
   }
 };
 
-// New SEO-specific fallback
+// Existing SEO-specific fallback
 const getSEOSuggestionsWithFallback = async (prompt) => {
   try {
     const response = await perplexityApi.post("/chat/completions", {
@@ -110,4 +110,6 @@ const getSEOSuggestionsWithFallback = async (prompt) => {
   }
 };
 
-module.exports = { getSuggestionsWithFallback, getSEOSuggestionsWithFallback };
+
+
+module.exports = { getSuggestionsWithFallback, getSEOSuggestionsWithFallback};

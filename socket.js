@@ -1,6 +1,12 @@
 // backend/socket.js
 let io;
 
+const emitLog = (message) => {
+  if (io) {
+    io.emit("backendLog", { message });
+  }
+};
+
 module.exports = {
   init: (server) => {
     const { Server } = require("socket.io");
@@ -28,15 +34,10 @@ module.exports = {
     if (!io) throw new Error("Socket.io not initialized!");
     return io;
   },
-  // Add emitLog function to send logs to connected clients
-  emitLog: (message) => {
-    if (io) {
-      io.emit("backendLog", { message });
-    }
-  },
-  logAndEmitError(...args) {
+  emitLog, // Export emitLog as a standalone function
+  logAndEmitError: (...args) => {
     const message = args.join(" ");
-    emitLog(`ERROR: ${message}`);
+    emitLog(`ERROR: ${message}`); // Use the exported emitLog function
     console.error(...args);
-  }
+  },
 };
