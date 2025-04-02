@@ -302,36 +302,37 @@ async function generateSocialMediaContent(req, res, data, business, user, userSo
     }
 
     const selectedHook = hook || keyMessage || "quick tip";
-    console.log("Selected hook:", selectedHook);
 
     console.log("Fetching trend insights with fallback...");
-
     let trendInsights = ["default format"];
     let visualTrends = ["standard visual"];
-    
+
     try {
       const trendResponse = await getSuggestionsWithFallback(`Most engaging post formats for ${platform} in 2025`);
       trendInsights = trendResponse.text.split("\n").filter(Boolean);
     } catch (err) {
       console.warn("Failed to get trend insights:", err.message);
     }
-    
+
     try {
       const visualResponse = await getSuggestionsWithFallback(`Top visual styles for ${platform} in 2025`);
       visualTrends = visualResponse.text.split("\n").filter(Boolean);
     } catch (err) {
       console.warn("Failed to get visual trends:", err.message);
     }
-    console.log("Perplexity trends fetched:", { trendInsights, visualTrends });
 
-    // Ensure specificInstructions respects the user-selected hook
     let finalInstructions = specificInstructions;
     if (hook && specificInstructions.toLowerCase().includes("start with a")) {
-      // Replace any "Start with a ..." instruction with the user-selected hook
       finalInstructions = specificInstructions.replace(/Start with a \w+(\s\w+)*/i, `Start with a ${selectedHook}`);
     }
 
     const prompt = `
+Examples of unique openers to inspire tone and style:
+1. "Your competitors are sleeping on this trick 👀"
+2. "Think your store is optimized? Think again."
+3. "Don’t scroll unless you want more sales 🤑"
+Avoid these: "Ready to...", "Boost your...", "Time to level up...", "Are you looking to..."
+
 Create a high-performing ${socialMediaType} post for the company "${companyName}" targeting "${targetAudience}".
 - Focus Service: ${focusService}
 - Content Pillar: ${contentPillar}
@@ -339,9 +340,9 @@ Create a high-performing ${socialMediaType} post for the company "${companyName}
 - Goal: ${goal}
 - Key Message: "${keyMessage}"
 - Topic: "${topic}"
-- Caption: Within ${captionLimit}, include 2-3 emojis, ensure "${keyMessage}" is clearly communicated
-- Hashtags: ${hashtagCount}, must be relevant to platform and topic "${topic}"
-- CTA: Engage reader, align with goal "${goal}"
+- Caption: Within ${captionLimit}, include 2-3 emojis. Avoid common openers like "Ready to...". Use creative, fresh language that aligns with tone.
+- Hashtags: ${hashtagCount}, relevant to "${topic}" and platform
+- CTA: Must align with "${goal}"
 - Hook: ${selectedHook}
 - Tone: ${adjustedTone}
 - Format: ${trendInsights[0] || "default format"}
@@ -367,26 +368,20 @@ ${socialMediaType.includes("Reel") || socialMediaType.includes("Story") || socia
 ` : `**Texts on Poster:**`}
 ---
 `;
+
     console.log("Generated prompt:", prompt);
 
     console.log("Calling OpenAI API...");
-    let aiResponse;
-    try {
-      aiResponse = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: 1000,
-        temperature: 0.7,
-      });
-    } catch (error) {
-      
-      logAndEmitError("OpenAI API error:", error.message, error.stack);
-      throw new Error("Failed to generate content from OpenAI: " + error.message);
-    }
-    console.log("OpenAI response received:", aiResponse.choices[0].message.content);
+    const aiResponse = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: 1000,
+      temperature: 0.9, // 🔥 Higher temp for creativity
+    });
 
     const output = aiResponse.choices[0].message.content.trim();
     const lines = output.split("\n").filter((line) => line.trim());
+
     const extractField = (label) => {
       const fieldLine = lines.find((line) => line.startsWith(label));
       if (!fieldLine) return "";
@@ -427,7 +422,6 @@ ${socialMediaType.includes("Reel") || socialMediaType.includes("Story") || socia
         }),
     };
 
-    console.log("Saving content to database...");
     const content = new Content({
       type: "SocialMedia",
       businessId: business._id,
@@ -471,6 +465,7 @@ ${socialMediaType.includes("Reel") || socialMediaType.includes("Story") || socia
 
 
 
+
 router.get("/save-details-prompt", (req, res) => {
   if (!req.session.tempBusinessDetails) {
     return res.json({ redirect: "/social-media/branding-social" });
@@ -481,7 +476,7 @@ router.get("/save-details-prompt", (req, res) => {
   });
 });
 
-
+const cache = new Map();
 
 // Clear in-memory cache every hour (optional)
 setInterval(() => cache.clear(), 60 * 60 * 1000);

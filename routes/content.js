@@ -14,13 +14,24 @@ const { jsPDF } = require('jspdf'); // For generating PDFs (we'll use docx inste
 const { Document, Packer, Paragraph, TextRun, HeadingLevel } = require('docx'); // For generating Word documents
 
 // Get analytics data for the user's content
-
+// Get all content within a date range (for ContentCalendar)
 router.get('/', ensureAuthenticated, async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
     const userId = req.user._id;
 
-    let query = { userId };
+    const user = await User.findById(userId).populate('businesses');
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const query = {
+      $or: [
+        { userId },
+        { businessId: { $in: user.businesses.map(b => b._id) } },
+      ],
+    };
+
     if (startDate && endDate) {
       query.createdAt = { $gte: new Date(startDate), $lte: new Date(endDate) };
     }
@@ -28,14 +39,62 @@ router.get('/', ensureAuthenticated, async (req, res) => {
     const content = await Content.find(query)
       .populate('businessId', 'companyName')
       .populate('userId', 'email name image')
+      .populate('assignee', 'name image') // Ensure assignee is populated
       .exec();
 
     res.status(200).json({ content });
   } catch (error) {
     console.error('Error in GET /api/content:', error);
+    res.status(404).json({ error: 'Not Found', details: error.message });
+  }
+});
+
+router.get('/id/:contentId', ensureAuthenticated, async (req, res) => {
+  try {
+    const { contentId } = req.params;
+    const userId = req.user._id;
+
+    console.log("Fetching content by ID:", { contentId, userId });
+
+    if (!contentId || contentId === 'undefined') {
+      return res.status(400).json({ error: 'Invalid content ID' });
+    }
+
+    if (!mongoose.isValidObjectId(contentId)) {
+      return res.status(400).json({ error: 'Invalid content ID format' });
+    }
+
+    const content = await Content.findById(contentId)
+      .populate('businessId', 'companyName')
+      .populate('userId', 'email name image')
+      .populate('assignee', 'name image') // Ensure assignee is populated
+      .exec();
+
+    if (!content) {
+      return res.status(404).json({ error: 'Content not found' });
+    }
+
+    const user = await User.findById(userId).populate('businesses').exec();
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const contentBusinessId = content.businessId?._id?.toString?.() || content.businessId?.toString();
+    const hasAccess =
+      content.userId.toString() === userId.toString() ||
+      user.businesses.some((b) => b._id.toString() === contentBusinessId);
+
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'You do not have access to this content' });
+    }
+
+    res.json({ content });
+  } catch (error) {
+    console.error('Error in GET /api/content/id/:contentId:', error);
     res.status(500).json({ error: 'Failed to fetch content', details: error.message });
   }
 });
+
 
 router.get('/analytics', ensureAuthenticated, async (req, res) => {
   try {
@@ -199,7 +258,8 @@ router.get('/history', ensureAuthenticated, async (req, res) => {
       .skip(skip)
       .limit(limit)
       .populate('businessId', 'companyName')
-      .populate('userId', 'email name image');
+      .populate('userId', 'email name image')
+      .populate('assignee', 'name image')
 
     const totalContent = await Content.countDocuments(query);
 
@@ -251,6 +311,7 @@ router.get('/id/:contentId', ensureAuthenticated, async (req, res) => {
     const { contentId } = req.params;
     const userId = req.user._id;
 
+    console.log("Fetching content by ID:", { contentId, userId });
     if (!contentId || contentId === 'undefined') {
       return res.status(400).json({ error: 'Invalid content ID' });
     }
@@ -417,6 +478,14 @@ router.get('/download/:contentId', ensureAuthenticated, async (req, res) => {
       documentChildren.push(
         addParagraph(content.data.title || 'Untitled', { heading: HeadingLevel.HEADING_1, spacingAfter: 400 })
       );
+      
+      // Add Slug / Proposed URL
+      if (content.data.proposedUrl) {
+        documentChildren.push(
+          addParagraph('Proposed URL', { heading: HeadingLevel.HEADING_2 }),
+          addParagraph(content.data.proposedUrl)
+        );
+      }
 
       // Add Meta Description
       if (content.data.metaDescription) {
@@ -598,10 +667,12 @@ router.get('/download/:contentId', ensureAuthenticated, async (req, res) => {
 });
 
 // Update content (e.g., status, scheduled date, data)
-router.put('/:contentId', ensureAuthenticated, ensureBusinessRole('Editor'), async (req, res) => {
+router.put('/:contentId', ensureAuthenticated, async (req, res) => {
   const { contentId } = req.params;
   const userId = req.user._id;
-  const { status, scheduledDate, data } = req.body;
+  const { status, scheduledDate, data, assignee, reminderNotes } = req.body;
+
+  console.log("PUT /api/content/:contentId - Request body:", req.body);
 
   if (status && !['Draft', 'Published', 'Scheduled', 'Archived'].includes(status)) {
     return res.status(400).json({ error: 'Invalid status' });
@@ -618,31 +689,86 @@ router.put('/:contentId', ensureAuthenticated, ensureBusinessRole('Editor'), asy
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const hasAccess = content.userId.toString() === userId.toString() || 
-      user.businesses.some(b => b._id.toString() === content.businessId?.toString());
-    if (!hasAccess) {
-      return res.status(403).json({ error: 'You do not have access to this content' });
+    const isOwner = content.userId.toString() === userId.toString();
+    const isBusinessContent = !!content.businessId;
+    let isBusinessMember = false;
+
+    if (isBusinessContent) {
+      const business = await Business.findById(content.businessId);
+      if (!business) {
+        return res.status(404).json({ error: 'Business not found' });
+      }
+
+      isBusinessMember =
+        business.owner.toString() === userId.toString() ||
+        business.members.some(m => m.user.toString() === userId.toString());
+
+      if (!isBusinessMember) {
+        return res.status(403).json({ error: 'You do not have access to this business content' });
+      }
+
+      // Assignee validation should only happen if the content has a business
+      if (assignee) {
+        const isValidAssignee =
+          business.owner.toString() === assignee ||
+          business.members.some(m => m.user.toString() === assignee);
+
+        if (!isValidAssignee) {
+          return res.status(400).json({ error: 'Assignee must be a member of the business' });
+        }
+
+        content.assignee = assignee;
+      }
+    } else if (!isOwner) {
+      return res.status(403).json({ error: 'You do not have access to this personal content' });
     }
 
-    if (status) {
-      content.status = status;
-    }
-    if (scheduledDate) {
-      content.scheduledDate = new Date(scheduledDate);
-    }
-    if (data) {
-      content.data = { ...content.data, ...data }; // Merge updated data
-    }
+    // Update other fields
+    if (status) content.status = status;
+    if (scheduledDate) content.scheduledDate = new Date(scheduledDate);
+    if (data) content.data = { ...content.data, ...data };
+    if (reminderNotes !== undefined) content.reminderNotes = reminderNotes;
 
     await content.save();
     res.json({ message: 'Content updated successfully', content });
   } catch (error) {
+    console.error("Error updating content:", error);
     res.status(500).json({ error: 'Failed to update content', details: error.message });
   }
 });
 
+
+router.get('/:businessId/members', ensureAuthenticated, async (req, res) => {
+  const { businessId } = req.params;
+  const userId = req.user._id;
+
+  try {
+    const business = await Business.findById(businessId);
+    if (!business) {
+      return res.status(404).json({ error: 'Business not found' });
+    }
+
+    const user = await User.findById(userId).populate('businesses');
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const hasAccess = user.businesses.some(b => b._id.toString() === businessId);
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'You do not have access to this business' });
+    }
+
+    // Fetch all members, including the owner
+    const memberIds = business.members.map(m => m.user).concat(business.owner);
+    const members = await User.find({ _id: { $in: memberIds } }).select('name image');
+    res.json({ members });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch members', details: error.message });
+  }
+});
+
 // Delete content
-router.delete('/:contentId', ensureAuthenticated, ensureBusinessRole('Editor'), async (req, res) => {
+router.delete('/:contentId', ensureAuthenticated, async (req, res) => {
   const { contentId } = req.params;
   const userId = req.user._id;
 
@@ -657,8 +783,8 @@ router.delete('/:contentId', ensureAuthenticated, ensureBusinessRole('Editor'), 
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const hasAccess = content.userId.toString() === userId.toString() || 
-      user.businesses.some(b => b._id.toString() === content.businessId?.toString());
+    // Check if the content belongs to a business the user is a member of
+    const hasAccess = user.businesses.some(b => b._id.toString() === content.businessId?.toString());
     if (!hasAccess) {
       return res.status(403).json({ error: 'You do not have access to this content' });
     }

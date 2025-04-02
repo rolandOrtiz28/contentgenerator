@@ -16,6 +16,15 @@ const ContentSchema = new mongoose.Schema({
     ref: 'User',
     required: true,
   },
+  assignee: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: false, 
+  },
+  reminderNotes: {
+    type: String,
+    required: false, 
+  },
   data: {
     type: Object, 
     required: true,
