@@ -12,6 +12,9 @@ const User = require("../models/User");
 const { ensureAuthenticated } = require("../middleware/auth");
 const { ensureBusinessRole } = require("../middleware/businessAccess");
 const { logAndEmitError } = require("../socket");
+const cleanJsonString = require("../utils/cleanJson");
+
+
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -469,7 +472,7 @@ router.post(
       // Check free trial or subscription (bypass in development)
       if (
         process.env.NODE_ENV !== "development" &&
-        !user.isEditEdgeUser && // Add this condition
+        !user.isEditEdgeUser &&
         user.subscription === "None" &&
         user.freeTrialUsed
       ) {
@@ -657,43 +660,62 @@ Business Details:
       // Define slugify for Tweak 5 (if not already available)
       const slugify = (str) => str.toLowerCase().replace(/\s+/g, "-");
 
-      // Apply ChatGPT's prompt exactly as provided
+      // Parse the articleLength to extract the word count range
+      let targetWordCountMin, targetWordCountMax;
+      if (articleLength.includes("Medium")) {
+        targetWordCountMin = 1200;
+        targetWordCountMax = 1500;
+      } else if (articleLength.includes("Long")) {
+        targetWordCountMin = 1500;
+        targetWordCountMax = 2000;
+      } else if (articleLength.includes("Comprehensive")) {
+        targetWordCountMin = 2000;
+        targetWordCountMax = 2500;
+      } else {
+        targetWordCountMin = 1200; // Default to Medium if not specified
+        targetWordCountMax = 1500;
+      }
+
+      // Calculate max_tokens based on the target word count (1 word ≈ 1.3 tokens)
+      const maxTokens = Math.ceil(targetWordCountMax * 1.3) + 1500; // Increased to ensure complete responses
+
+      // Simplified business context to reduce prompt complexity
       const businessContext = `
-Company Name: ${businessData.companyName}
-Description: ${businessData.description}
-Services: ${businessData.services}
-Focus Service: ${businessData.focusService}
-Target Audience: ${businessData.targetAudience}
-Tone: ${businessData.brandTone}
-Persona Style: "Natural and Human-like"
-Topic: ${keyword || suggestions.primaryKeywords?.[0]}
-Key Message: ${keyPoints?.join(", ") || suggestions.keyPoints?.join(", ")}
-Ad/Promo Details: ${cta || suggestions.cta}
-Goal: ${uniqueBusinessGoal || suggestions.uniqueBusinessGoal}
-Content Pillar: ${focusService || businessData.focusService}
-Challenge: ${specificChallenge || suggestions.specificChallenge}
-Business Goal: ${uniqueBusinessGoal || suggestions.uniqueBusinessGoal}
-Personal Anecdote: ${personalAnecdote || suggestions.personalAnecdote}
-Primary Keyword: ${keyword || suggestions.primaryKeywords?.[0]}
-Secondary Keywords: ${secondaryKeywords?.join(", ") || suggestions.secondaryKeywords?.join(", ")}
-Stats: ${Object.entries(suggestions.stats || {}).map(([fact, source]) => `${fact} - ${source}`).join(", ")}
-FAQs: ${Object.entries(suggestions.faqs || {}).map(([q, a]) => `${q}: ${a}`).join(" | ")}
-Related Subtopics: ${Object.keys(suggestions.clusters || {}).join(", ")}
-Featured Snippet Target: ${suggestions.snippetData?.question || "N/A"} - ${suggestions.snippetData?.format || "paragraph"}
-Trusted Tools/Entities: ${Object.entries(suggestions.entities || {}).map(([name, desc]) => `${name} (${desc})`).join(", ")}
-Specific Instructions: ${specificInstructions || suggestions.specificInstructions}
+Business Details:
+- Company Name: ${businessData.companyName}
+- Description: ${businessData.description}
+- Services: ${businessData.services}
+- Focus Service: ${businessData.focusService}
+- Target Audience: ${businessData.targetAudience}
+- Brand Tone: ${businessData.brandTone}
+- Persona Style: "Natural and Human-like"
+- Topic: ${keyword || suggestions.primaryKeywords?.[0] || "digital marketing"}
+- Key Message: ${keyPoints?.join(", ") || suggestions.keyPoints?.join(", ") || "Enhance online presence"}
+- Ad/Promo Details: ${cta || suggestions.cta || "Contact us today!"}
+- Goal: ${uniqueBusinessGoal || suggestions.uniqueBusinessGoal || "Increase online visibility"}
+- Content Pillar: ${focusService || businessData.focusService}
+- Challenge: ${specificChallenge || suggestions.specificChallenge || "Standing out in a competitive market"}
+- Personal Anecdote: ${personalAnecdote || suggestions.personalAnecdote || "A client saw a 30% increase in engagement after our redesign"}
+- Primary Keyword: ${keyword || suggestions.primaryKeywords?.[0] || "digital marketing"}
+- Secondary Keywords: ${secondaryKeywords?.join(", ") || suggestions.secondaryKeywords?.join(", ") || "online presence, brand enhancement"}
+- Stats: ${Object.entries(suggestions.stats || {}).map(([fact, source]) => `${fact} - ${source}`).join(", ") || "N/A"}
+- FAQs: ${Object.entries(suggestions.faqs || {}).map(([q, a]) => `${q}: ${a}`).join(" | ") || "N/A"}
+- Related Subtopics: ${Object.keys(suggestions.clusters || {}).join(", ") || "N/A"}
+- Featured Snippet Target: ${suggestions.snippetData?.question || "N/A"} - ${suggestions.snippetData?.format || "paragraph"}
+- Trusted Tools/Entities: ${Object.entries(suggestions.entities || {}).map(([name, desc]) => `${name} (${desc})`).join(", ") || "N/A"}
+- Specific Instructions: ${specificInstructions || suggestions.specificInstructions || "Focus on benefits for the target audience"}
 `;
 
       const seoPrompt = `
-You are a professional SEO strategist and content writer. Based on the business context above, generate a high-performing blog article in valid **escaped JSON format**.
+You are a professional SEO strategist and content writer. Based on the business context above, generate a high-performing blog article in valid **escaped JSON format**. The content MUST be strictly between ${targetWordCountMin} and ${targetWordCountMax} words long. If you cannot meet this word count, do not generate the content and return an error message instead.
 
 🎯 Goals:
-- Rank on Google for the topic: "${keyword || suggestions.primaryKeywords?.[0]}"
+- Rank on Google for the topic: "${keyword || suggestions.primaryKeywords?.[0] || "digital marketing"}"
 - Engage ${businessData.targetAudience}
 - Convert interest into action for: "${businessData.focusService}"
 
 🧠 Writing Guidelines:
-- Write a unique, non-templated, original blog (1200–1500 words)
+- Write a unique, non-templated, original blog (between ${targetWordCountMin} and ${targetWordCountMax} words)
 - Use the primary keyword 5–7 times (naturally)
 - Use secondary keywords contextually (2–3 times each)
 - Mention the business name 3–5 times
@@ -706,12 +728,32 @@ You are a professional SEO strategist and content writer. Based on the business 
 - End with a clear CTA aligned to the business goal
 - Use the selected tone/persona to influence voice and flow
 
+**Uniqueness Guidelines:**
+- DO NOT use clichés like "Transform Your Business," "Boost Your Sales," or "Elevate Your Brand" in the title or introduction.
+- Create a unique, creative title that stands out, using the primary keyword in a fresh way.
+- Start the introduction with a compelling hook (e.g., a surprising stat, a bold question, or a vivid story) that avoids generic phrasing.
+- Use the brand tone "${businessData.brandTone}" to guide the style of the title and introduction.
+
+**Word Count Requirement:**
+- The total word count of the article (including introduction, sections, conclusion, FAQs, and key takeaways) MUST be strictly between ${targetWordCountMin} and ${targetWordCountMax} words.
+- Estimate the word count during generation and adjust the content to meet this requirement.
+- Distribute the word count as follows:
+  - Introduction: 250-300 words
+  - Each section content: At least 300-400 words per subsection (total 600-800 words per section)
+  - Conclusion: 250-300 words
+  - FAQs: 150-200 words per answer (total 450-600 words for 3 FAQs)
+  - Key Takeaways: 50-100 words total
+- If the target word count cannot be met with the current structure, add more subsections or expand existing ones with additional examples, stats, or insights.
+- If you cannot meet the word count, return: {"error": "Unable to generate content within the specified word count range of ${targetWordCountMin}-${targetWordCountMax} words."}
+
 ⚙️ Output Format (JSON Only – No Markdown):
 {
-  "title": "SEO headline under 60 characters with primary keyword",
+  "title": "SEO headline under 60 characters with primary keyword, avoiding clichés",
+  "titleTag": "SEO-optimized alternate title (under 60 chars, different from main title) with primary keyword",
   "metaDescription": "150-160 character SEO meta with primary keyword",
+  "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"], // 5-8 keyword/tag strings related to the industry/topic
   "proposedUrl": "/[focus-service]-[topic]-[audience]",
-  "introduction": "250-300 word intro addressing the user pain point, using the primary keyword",
+  "introduction": "250-300 word intro addressing the user pain point with a unique hook, using the primary keyword",
   "sections": [
     {
       "heading": "H2 optimized for long-tail keyword",
@@ -731,7 +773,7 @@ You are a professional SEO strategist and content writer. Based on the business 
     {"question": "Conversational question", "answer": "150-200 words"}
   ],
   "conclusion": "Summarize benefits, re-emphasize focus service, use a CTA",
-  "internalLinks": ["/services/${slugify(businessData.focusService)}", "/about", "/contact", "/blog/${slugify(keyword || suggestions.primaryKeywords?.[0])}"],
+  "internalLinks": ["/services/${slugify(businessData.focusService)}", "/about", "/contact", "/blog/${slugify(keyword || suggestions.primaryKeywords?.[0] || "digital-marketing")}"],
   "schemaMarkup": "Valid escaped JSON-LD string with headline, description, datePublished, author",
   "images": []
 }
@@ -739,87 +781,135 @@ You are a professional SEO strategist and content writer. Based on the business 
 💥 IMPORTANT:
 - Do NOT wrap output in markdown or backticks.
 - Use escaped quotes (e.g. \\"example\\") for all string values inside the JSON.
+- Ensure all JSON keys and values are properly formatted with escaped quotes.
 - No trailing commas.
 - No additional commentary outside of the JSON.
+- For "titleTag", create an SEO-optimized alternate title (under 60 chars) that is different from the main title but still includes the primary keyword.
+- For "tags", generate 5-8 keyword/tag strings related to the industry/topic, using the primary and secondary keywords as a base.
+- Ensure the JSON is complete and valid, with all braces and brackets properly closed.
 `;
 
       const contentPrompt = `${businessContext}\n\n${seoPrompt}`;
 
       let generatedContent;
-      let attempts = 0;
-      const maxAttempts = 3;
 
-      while (attempts < maxAttempts) {
+      try {
+        const contentResponse = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [{ role: "user", content: contentPrompt }],
+          max_tokens: maxTokens,
+          temperature: 0.6,
+          presence_penalty: 0.5,
+          frequency_penalty: 0.5,
+        });
+
+        let rawContent = contentResponse.choices[0].message.content.trim();
+        console.log("Raw AI Response:", rawContent);
+
+        // Enhanced manualFixJson to handle more edge cases
+        rawContent = rawContent
+          .replace(/([{,]\s*)(\w+)\s*:/g, '$1"$2":') // Ensure keys are quoted
+          .replace(/:\s*([^"{[,\s][^,\]}]*)([,}])/g, ': "$1"$2') // Quote unquoted values
+          .replace(/\\([^"])/g, '\\\\$1') // Escape backslashes properly
+          .replace(/([^\\])"/g, '$1\\"'); // Escape quotes within strings
+
+        let repairedJson;
         try {
-          const contentResponse = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [{ role: "user", content: contentPrompt }],
-            max_tokens: 3500,
-            temperature: 0.6,
-            presence_penalty: 0.5,
-            frequency_penalty: 0.5,
-          });
-
-          let rawContent = contentResponse.choices[0].message.content.trim();
-          console.log("Raw AI Response:", rawContent);
-
-          rawContent = manualFixJson(rawContent);
-
-          let repairedJson;
-          try {
-            repairedJson = jsonrepair(rawContent);
-          } catch (repairError) {
-            logAndEmitError("JSON Repair Error:", repairError.message, repairError.stack);
-            attempts++;
-            if (attempts === maxAttempts) {
-              throw new Error("Unable to repair JSON response after multiple attempts");
-            }
-            continue;
-          }
-
-          generatedContent = JSON.parse(repairedJson);
-          break;
-        } catch (error) {
-          console.error("Attempt", attempts + 1, "failed:", error);
-          attempts++;
-          if (attempts === maxAttempts) {
-            console.error("JSON Parsing Failed after all attempts:", error);
-            generatedContent = {
-              title: "Fallback Article Title",
-              metaDescription: "This is a fallback article due to generation issues.",
-              proposedUrl: "/fallback-article",
-              introduction:
-                "We encountered an issue generating the full article. Please try again later.",
-              sections: [
-                {
-                  heading: "Section 1",
-                  subheadings: ["Subheading 1", "Subheading 2"],
-                  content: [
-                    "This is a fallback section.",
-                    "Please try generating the article again.",
-                  ],
-                },
-              ],
-              keyTakeaways: ["Fallback point 1", "Fallback point 2", "Fallback point 3"],
-              faqs: [
-                {
-                  question: "What happened?",
-                  answer: "There was an issue generating the article.",
-                },
-                {
-                  question: "What should I do?",
-                  answer: "Please try again later.",
-                },
-              ],
-              conclusion:
-                "We apologize for the inconvenience. Contact support if the issue persists.",
-              internalLinks: ["/about", "/contact"],
-              schemaMarkup:
-                '{"@context": "https://schema.org", "@type": "Article", "headline": "Fallback Article Title", "description": "This is a fallback article due to generation issues."}',
-              images: [],
-            };
-          }
+          repairedJson = jsonrepair(rawContent);
+        } catch (repairError) {
+          logAndEmitError("JSON Repair Error:", repairError.message, repairError.stack);
+          throw new Error("Unable to repair JSON response");
         }
+
+        generatedContent = JSON.parse(repairedJson);
+
+        // Check if the AI returned an error due to word count
+        if (generatedContent.error) {
+          throw new Error(generatedContent.error);
+        }
+
+        // Validate word count
+        const countWords = (content) => {
+          if (!content) return 0;
+          let totalWords = 0;
+          const countSectionWords = (text) => {
+            if (typeof text === "string") {
+              return text.split(/\s+/).filter(word => word.length > 0).length;
+            }
+            return 0;
+          };
+
+          totalWords += countSectionWords(content.introduction);
+          totalWords += countSectionWords(content.conclusion);
+          totalWords += countSectionWords(content.keyTakeaways?.join(" ") || "");
+
+          if (content.sections) {
+            content.sections.forEach(section => {
+              section.content?.forEach(paragraph => {
+                totalWords += countSectionWords(paragraph);
+              });
+            });
+          }
+
+          if (content.faqs) {
+            content.faqs.forEach(faq => {
+              totalWords += countSectionWords(faq.answer);
+            });
+          }
+
+          return totalWords;
+        };
+
+        let wordCount = countWords(generatedContent);
+        console.log("Generated Word Count:", wordCount);
+
+        if (wordCount < targetWordCountMin || wordCount > targetWordCountMax) {
+          throw new Error(`Generated content does not meet the required word count range of ${targetWordCountMin}-${targetWordCountMax} words. Generated: ${wordCount} words.`);
+        }
+
+      } catch (error) {
+        logAndEmitError("Content Generation Error:", error.message, error.stack);
+        generatedContent = {
+          title: "Fallback Article Title",
+          titleTag: "Fallback SEO Title",
+          metaDescription: "This is a fallback article due to generation issues.",
+          tags: ["fallback", "error", "article"],
+          proposedUrl: "/fallback-article",
+          introduction:
+            "We encountered an issue generating the full article. Please try again later.",
+          sections: [
+            {
+              heading: "Section 1",
+              subheadings: ["Subheading 1", "Subheading 2"],
+              content: [
+                "This is a fallback section.",
+                "Please try generating the article again.",
+              ],
+            },
+          ],
+          keyTakeaways: ["Fallback point 1", "Fallback point 2", "Fallback point 3"],
+          faqs: [
+            {
+              question: "What happened?",
+              answer: "There was an issue generating the article.",
+            },
+            {
+              question: "What should I do?",
+              answer: "Please try again later.",
+            },
+          ],
+          conclusion:
+            "We apologize for the inconvenience. Contact support if the issue persists.",
+          internalLinks: ["/about", "/contact"],
+          schemaMarkup:
+            '{"@context": "https://schema.org", "@type": "Article", "headline": "Fallback Article Title", "description": "This is a fallback article due to generation issues."}',
+          images: [],
+        };
+      }
+
+      // Ensure generatedContent is defined before proceeding
+      if (!generatedContent) {
+        throw new Error("Failed to generate content");
       }
 
       // Tweak 7: Review the Final Draft with Fallback (replacing fetchFromPerplexity)
@@ -828,21 +918,30 @@ You are a professional SEO strategist and content writer. Based on the business 
         criteria: ["SEO", "E-A-T", "readability", "uniqueness"],
       });
       console.log("Review (with fallback):", review);
-      // Note: Applying review suggestions would require manual edits or another OpenAI call. For now, we log it.
 
-      generatedContent.sections = generatedContent.sections.map((section) => {
-        if (!Array.isArray(section.content)) {
-          section.content = [JSON.stringify(section.content)];
-        }
-        return section;
-      });
+      // Ensure sections is an array before mapping
+      if (generatedContent.sections && Array.isArray(generatedContent.sections)) {
+        generatedContent.sections = generatedContent.sections.map((section) => {
+          if (!Array.isArray(section.content)) {
+            section.content = [JSON.stringify(section.content)];
+          }
+          return section;
+        });
+      } else {
+        generatedContent.sections = [];
+      }
 
       if (typeof generatedContent.schemaMarkup !== "string") {
-        generatedContent.schemaMarkup = JSON.stringify(generatedContent.schemaMarkup);
+        generatedContent.schemaMarkup = JSON.stringify(generatedContent.schemaMarkup || {});
       }
 
       if (!Array.isArray(generatedContent.images)) {
         generatedContent.images = [];
+      }
+
+      // Ensure tags field exists, if not, generate fallback tags
+      if (!generatedContent.tags || !Array.isArray(generatedContent.tags)) {
+        generatedContent.tags = suggestions.primaryKeywords?.concat(suggestions.secondaryKeywords || []).slice(0, 6) || ["fallback", "error", "article"];
       }
 
       const content = new Content({

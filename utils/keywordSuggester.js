@@ -120,18 +120,22 @@ const suggestKeywordsWithPerplexity = async (businessDetails) => {
   const randomTone =
     creativeTone[Math.floor(Math.random() * creativeTone.length)];
 
-  const prompt = `
-You are an SEO expert and strategist. Given the business info below, suggest the following:
-- 3 Primary Keywords
-- 3 Secondary Keywords
-- 3 Key Points
-- 1 Unique Business Goal
-- 1 Specific Challenge
-- 1 Personal Anecdote
-- 1 Call to Action (CTA)
-- 1 Specific AI Requirement to get the best article output
-All suggestions must be tailored specifically to the Focus Service and target audience.
-Tone: ${randomTone}
+    const prompt = `
+    You are a top-tier SEO strategist using tools like Ahrefs, SEMrush, and Clearscope. Given the business context below, your task is to suggest **ONLY high-performing, high-search-volume SEO keywords**.
+    
+    🎯 Output Format:
+    - Primary Keywords: 3 keywords with high search intent, high competition, and monthly search volume > 5K
+    - Secondary Keywords: 3 semantically related, long-tail or support keywords
+    - Key Points: 3 marketing angles or core benefits of the focus service
+    - Unique Business Goal: One sentence tailored to the service
+    - Specific Challenge: A real pain point this audience faces
+    - Personal Anecdote: One-sentence anecdote or result story
+    - Call to Action: Direct CTA (e.g., Book a Free Call, Try Now)
+    - Specific AI Requirement: Instruction to improve content generation quality
+    
+    ⚠️ Do not suggest unrelated services like digital marketing if focus is "graphic design."
+    All keywords MUST be related to the Focus Service and Target Audience ONLY.
+    Tone: ${randomTone}
 
 Business:
 - Name: ${companyName || "Unknown Company"}
