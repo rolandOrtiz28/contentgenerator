@@ -700,30 +700,34 @@ router.put('/:contentId', ensureAuthenticated, async (req, res) => {
       }
 
       // Validate and update multiple assignees
-      if (assignee) {
-        const assignees = Array.isArray(assignee) ? assignee : [assignee];
+      if (req.body.hasOwnProperty('assignee')) {
+        const assignees = Array.isArray(assignee) ? assignee : assignee ? [assignee] : [];
+      
         const validAssignees = assignees.every(id =>
           business.owner.toString() === id ||
           business.members.some(m => m.user.toString() === id)
         );
+      
         if (!validAssignees) {
           return res.status(400).json({ error: 'All assignees must be members of the business' });
         }
+      
         const previousAssignees = content.assignee || [];
         content.assignee = assignees;
-
-        // Send email notifications to newly assigned users
+      
+        // Email notifications only for new ones
         const newAssignees = assignees.filter(id => !previousAssignees.includes(id));
         if (newAssignees.length > 0) {
           const usersToNotify = await User.find({ _id: { $in: newAssignees } });
           for (const assigneeUser of usersToNotify) {
             const subject = `Assigned to Content: ${content.data.title || content.data.caption || 'Untitled'}`;
-            const plainText = `Hello ${assigneeUser.name},\n\nYou have been assigned to "${content.data.title || content.data.caption || 'Untitled'}" by ${user.name}.\n\nLog in to view details.\n\nBest regards,\nTeam`;
-            const html = `<p>Hello ${assigneeUser.name},</p><p>You have been assigned to "<strong>${content.data.title || content.data.caption || 'Untitled'}</strong>" by <strong>${user.name}</strong>.</p><p><a href="${process.env.FRONTEND_URL}/content/${contentId}">View Content</a></p><p>Best regards,<br>Team</p>`;
+            const plainText = `Hello ${assigneeUser.name},\n\nYou have been assigned to "${content.data.title || content.data.caption || 'Untitled'}" by ${user.name}.\n\nBest regards,\nTeam`;
+            const html = `<p>Hello ${assigneeUser.name},</p><p>You have been assigned to "<strong>${content.data.title || content.data.caption || 'Untitled'}</strong>" by <strong>${user.name}</strong>.</p>`;
             await sendEmail(assigneeUser.email, subject, plainText, html);
           }
         }
       }
+      
     } else if (!isOwner) {
       return res.status(403).json({ error: 'You do not have access to this personal content' });
     }
