@@ -1,35 +1,81 @@
-require("dotenv").config()
-const axios = require("axios");
+function parsePerplexityPlainText(text) {
+  const lines = text.split("\n").filter(line => line.trim());
+  const result = {};
 
-// In-memory cache to avoid repeat requests
-const cache = new Map();
+  for (const line of lines) {
+    const cleaned = line
+      .replace(/^[-*\s]*/, "")      // remove list markers like "- " or "* "
+      .replace(/\*\*/g, "")         // remove markdown bold
+      .trim();
 
-const perplexityApi = axios.create({
-  baseURL: "https://api.perplexity.ai",
-  headers: {
-    Authorization: `Bearer ${process.env.PERPLEXITY_API_KEY}`,
-    "Content-Type": "application/json",
-  },
-});
+    const [rawKey, ...rest] = cleaned.split(":");
+    const key = rawKey?.trim().toLowerCase(); // lowercase to standardize
+    const value = rest.join(":").trim(); // handle values with colons
 
-async function fetchFromPerplexity(query) {
-  if (cache.has(query)) return cache.get(query);
+    if (!key || !value) continue;
 
-  try {
-    const response = await perplexityApi.post("/chat/completions", {
-      model: "sonar-pro",
-      messages: [{ role: "user", content: query }],
-      max_tokens: 100,
-      temperature: 0.7,
-    });
-
-    const result = response.data.choices[0].message.content.trim().split("\n");
-    cache.set(query, result);
-    return result;
-  } catch (err) {
-    console.error("Perplexity Fetch Error:", err.message);
-    return ["default format"];
+    switch (key) {
+      case "primarykeywords":
+        result.suggestedPrimaryKeywords = value.split(",").map(v => v.trim());
+        break;
+      case "secondarykeywords":
+        result.suggestedSecondaryKeywords = value.split(",").map(v => v.trim());
+        break;
+      case "keypoints":
+        result.suggestedKeyPoints = value.split(",").map(v => v.trim());
+        break;
+      case "uniquebusinessgoal":
+        result.suggestedUniqueBusinessGoal = value;
+        break;
+      case "specificchallenge":
+        result.suggestedSpecificChallenge = value;
+        break;
+      case "personalanecdote":
+        result.suggestedPersonalAnecdote = value;
+        break;
+      case "cta":
+        result.suggestedCta = value;
+        break;
+      case "specificinstructions":
+        result.suggestedSpecificInstructions = value;
+        break;
+      case "toph2s":
+        result.suggestedTopH2s = value.split(",").map(v => v.trim());
+        break;
+      case "metadescriptions":
+        result.suggestedMetaDescriptions = value.split(",").map(v => v.trim());
+        break;
+      case "snippetsummaries":
+        result.suggestedSnippetSummaries = value.split(",").map(v => v.trim());
+        break;
+      case "contentgaps":
+        result.suggestedContentGaps = value.split(",").map(v => v.trim());
+        break;
+      case "clusters":
+        result.suggestedClusters = value.split(",").map(v => v.trim());
+        break;
+      case "snippetquestion":
+        result.suggestedSnippetQuestion = value;
+        break;
+      case "snippetformat":
+        result.suggestedSnippetFormat = value;
+        break;
+      case "stats":
+        result.stats = value.split(";").map(pair => pair.trim());
+        break;
+      case "faqs":
+        result.faqs = value.split(";").map(pair => pair.trim());
+        break;
+      case "entities":
+        result.entities = value.split(";").map(pair => pair.trim());
+        break;
+      default:
+        break;
+    }
   }
+
+  return result;
 }
 
-module.exports = { fetchFromPerplexity };
+
+module.exports = { parsePerplexityPlainText };

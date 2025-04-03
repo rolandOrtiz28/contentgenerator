@@ -1,5 +1,4 @@
-// utils/suggestions.js
-const { getSEOSuggestionsWithFallback } = require("./suggestionFetcher"); // Adjust path as needed
+const { getSEOSuggestionsWithFallback } = require("./suggestionFetcher");
 
 const buildPrompt = (query, options = {}) => {
   const {
@@ -75,11 +74,9 @@ List top trending tools, influencers, or thought leaders for 2025 related to: "$
 ${format}`;
 };
 
-
 const fetchWithFallback = async (query, options = {}) => {
   const prompt = buildPrompt(query, options);
-
-  const response = await getSEOSuggestionsWithFallback(prompt);
+  const response = await getSEOSuggestionsWithFallback(prompt, false); // Use sonar (not pro)
   const content = response.text;
 
   if (!content) return {};
@@ -117,25 +114,20 @@ const suggestKeywordsWithPerplexity = async (businessDetails) => {
     "Take a challenger-brand tone, with bold, confident wording.",
     "Make it sound like a growth hacker's secret playbook.",
   ];
-  const randomTone =
-    creativeTone[Math.floor(Math.random() * creativeTone.length)];
+  const randomTone = creativeTone[Math.floor(Math.random() * creativeTone.length)];
 
-    const prompt = `
-    You are a top-tier SEO strategist using tools like Ahrefs, SEMrush, and Clearscope. Given the business context below, your task is to suggest **ONLY high-performing, high-search-volume SEO keywords**.
-    
-    🎯 Output Format:
-    - Primary Keywords: 3 keywords with high search intent, high competition, and monthly search volume > 5K
-    - Secondary Keywords: 3 semantically related, long-tail or support keywords
-    - Key Points: 3 marketing angles or core benefits of the focus service
-    - Unique Business Goal: One sentence tailored to the service
-    - Specific Challenge: A real pain point this audience faces
-    - Personal Anecdote: One-sentence anecdote or result story
-    - Call to Action: Direct CTA (e.g., Book a Free Call, Try Now)
-    - Specific AI Requirement: Instruction to improve content generation quality
-    
-    ⚠️ Do not suggest unrelated services like digital marketing if focus is "graphic design."
-    All keywords MUST be related to the Focus Service and Target Audience ONLY.
-    Tone: ${randomTone}
+  const prompt = `
+You are a top-tier SEO strategist using tools like Ahrefs, SEMrush, and Clearscope.
+
+🎯 Output Format:
+- Primary Keywords: 3 highly specific, commercial intent keywords. DO NOT include generic terms like "digital marketing", "branding", "business", or "multimedia agency". Focus ONLY on keywords that directly target the Focus Service and Target Audience.
+- Secondary Keywords: 3 semantically related long-tail or support keywords.
+- Key Points: 3 marketing angles or benefits of the focus service.
+- Unique Business Goal: One sentence tailored to the service.
+- Specific Challenge: A real pain point this audience faces.
+- Personal Anecdote: One sentence about a result or success story.
+- Call to Action: Direct CTA (e.g., Book a Free Call).
+- Specific AI Requirement: Instruction to improve SEO content generation.
 
 Business:
 - Name: ${companyName || "Unknown Company"}
@@ -144,7 +136,10 @@ Business:
 - Focus Service: ${effectiveFocusService}
 - Target Audience: ${targetAudience || "general audience"}
 
-Respond in plain text and follow this format:
+🚨 IMPORTANT: Respond ONLY in plain text (no markdown or extra formatting). 
+You must include ALL of the following fields exactly once and in this exact format, even if you have to invent plausible examples. Do NOT skip any field or leave it empty.
+
+Required fields:
 Primary Keywords: ..., ..., ...
 Secondary Keywords: ..., ..., ...
 Key Points: ..., ..., ...
@@ -156,10 +151,9 @@ Specific AI Requirement: ...
 `;
 
   try {
-    const response = await getSEOSuggestionsWithFallback(prompt);
+    const response = await getSEOSuggestionsWithFallback(prompt, true);
+    console.log("📊 Keyword Token Usage:", response.tokenUsage);
     const content = response.text.trim();
-    const source = response.source;
-
     const lines = content.split("\n").filter((line) => line.trim());
 
     const extract = (label) => {
@@ -185,58 +179,66 @@ Specific AI Requirement: ...
       specificInstructions: extractSingle("Specific AI Requirement:"),
     };
 
-    // Handle empty results gracefully
-    if (!result.primaryKeywords.length && !result.secondaryKeywords.length) {
-      console.warn("No valid suggestions received from", source);
-      return {
-        primaryKeywords: [],
-        secondaryKeywords: [],
-        keyPoints: [],
-        uniqueBusinessGoal: "",
-        specificChallenge: "",
-        personalAnecdote: "",
-        cta: "",
-        specificInstructions: "",
-        competitiveData: {},
-        stats: {},
-        faqs: {},
-        snippetData: {},
-        clusters: {},
-        entities: {},
-      };
+    const requiredFields = [
+      'primaryKeywords',
+      'secondaryKeywords',
+      'keyPoints',
+      'uniqueBusinessGoal',
+      'specificChallenge',
+      'personalAnecdote',
+      'cta',
+      'specificInstructions',
+    ];
+    
+    const missingFields = requiredFields.filter(
+      (field) => !result[field] || (Array.isArray(result[field]) && result[field].length === 0)
+    );
+    
+    if (missingFields.length > 0) {
+      console.warn("❌ Missing required fields from AI response:", missingFields);
+      throw new Error("AI did not return all required fields.");
     }
 
-    const primaryKeyword = result.primaryKeywords[0] || effectiveFocusService;
+    // 🔥 FILTER out bad keywords
+    const banned = [
+      "digital marketing", "branding", "business", "multimedia agency", "e-commerce solutions"
+    ];
+    result.primaryKeywords = result.primaryKeywords.filter(
+      (k) => !banned.includes(k.toLowerCase())
+    );
 
-    // Tweak 1: Competitive Research
-    const competitiveData = await fetchWithFallback(primaryKeyword, {
+    if (!result.primaryKeywords.length) {
+      console.warn("❗ All primary keywords were filtered out as too generic.");
+      return result; // or throw error if needed
+    }
+
+    const primaryKeyword = result.primaryKeywords[0];
+
+    result.competitiveData = await fetchWithFallback(primaryKeyword, {
       intent: "SERP_analysis",
       output: ["topH2s", "metaDescriptions", "snippetSummaries", "contentGaps"],
     });
-    result.competitiveData = competitiveData;
 
-    // Tweak 2: Real Stats
-    const stats = await fetchWithFallback(`latest stats on ${effectiveFocusService}`, { topFacts: 3 });
-    result.stats = stats;
+    result.stats = await fetchWithFallback(`latest stats on ${effectiveFocusService}`, {
+      topFacts: 3,
+    });
 
-    // Tweak 3: Better FAQs
-    const faqs = await fetchWithFallback(primaryKeyword, {
+    result.faqs = await fetchWithFallback(primaryKeyword, {
       type: "relatedQuestions",
       sources: ["Google", "Reddit", "Quora"],
     });
-    result.faqs = faqs;
 
-    // Tweak 4: Featured Snippet Optimization
-    const snippetData = await fetchWithFallback(primaryKeyword, { intent: "snippetAnalysis" });
-    result.snippetData = snippetData;
+    result.snippetData = await fetchWithFallback(primaryKeyword, {
+      intent: "snippetAnalysis",
+    });
 
-    // Tweak 5: Topic Clusters
-    const clusters = await fetchWithFallback(effectiveFocusService, { intent: "contentCluster" });
-    result.clusters = clusters;
+    result.clusters = await fetchWithFallback(effectiveFocusService, {
+      intent: "contentCluster",
+    });
 
-    // Tweak 6: Entity Enrichment
-    const entities = await fetchWithFallback(`trending tools or thought leaders in ${effectiveFocusService} for 2025`);
-    result.entities = entities;
+    result.entities = await fetchWithFallback(
+      `trending tools or thought leaders in ${effectiveFocusService} for 2025`
+    );
 
     return result;
   } catch (err) {
@@ -260,4 +262,8 @@ Specific AI Requirement: ...
   }
 };
 
-module.exports = { suggestKeywordsWithPerplexity, fetchWithFallback };
+
+module.exports = {
+  suggestKeywordsWithPerplexity,
+  fetchWithFallback,
+};

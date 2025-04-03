@@ -64,7 +64,7 @@ router.get('/extract-branding', ensureAuthenticated, async (req, res) => {
     `;
 
     const response = await perplexityApi.post('/chat/completions', {
-      model: 'sonar-pro',
+      model: 'sonar',
       messages: [
         { role: 'system', content: 'Extract branding info from a website and respond in JSON format. Do not use markdown code fences.' },
         { role: 'user', content: prompt },
