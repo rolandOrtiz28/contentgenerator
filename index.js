@@ -8,7 +8,6 @@ app.use(cors({
     const allowedOrigins = [
       "http://localhost:8080",
       "https://content.editedgemultimedia.com",
-      "https://app-aagi02dfpgs.canva-apps.com",
       "https://ai.editedgemultimedia.com",
     ];
     if (!origin || allowedOrigins.includes(origin)) {
@@ -169,32 +168,49 @@ app.use(
 // Rate Limiting
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: process.env.NODE_ENV === "production" ? 100 : 1000,
-  message: "Too many requests from this IP, please try again later.",
+  max: process.env.NODE_ENV === "production" ? 500 : 1000,
+  message: "Too many requests, please try again later.",
+  keyGenerator: (req) => {
+    return req.user?._id?.toString() || req.ip; 
+  },
 });
 
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: process.env.NODE_ENV === "production" ? 50 : 500,
-  message: "Too many API requests from this IP, please try again later.",
+  max: process.env.NODE_ENV === "production" ? 300 : 500,
+  message: "Too many API requests, please try again later.",
+  keyGenerator: (req) => {
+    return req.user?._id?.toString() || req.ip;
+  },
 });
 
+const commentsLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: process.env.NODE_ENV === "production" ? 100 : 200,
+  message: "Too many comment requests, please try again later.",
+  keyGenerator: (req) => {
+    return req.user?._id?.toString() || req.ip;
+  },
+});
+
+// Apply general limiter to all routes
 app.use((req, res, next) => {
-  if (req.path.startsWith("/api/billing/webhook")) {
-    return next();
-  }
-  if (req.path.startsWith("/socket.io/")) {
+  if (req.path.startsWith("/api/billing/webhook") || req.path.startsWith("/socket.io/")) {
     return next();
   }
   generalLimiter(req, res, next);
 });
 
+// Apply API limiter to /api/ routes
 app.use("/api/", (req, res, next) => {
   if (req.path.startsWith("/billing/webhook")) {
     return next();
   }
   apiLimiter(req, res, next);
 });
+
+// Apply comments limiter to specific endpoints
+app.use("/api/content/:contentId/comments", commentsLimiter);
 
 // Security Middleware
 app.use(xss());

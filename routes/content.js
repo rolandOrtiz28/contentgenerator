@@ -672,22 +672,16 @@ router.put('/:contentId', ensureAuthenticated, async (req, res) => {
   const userId = req.user._id;
   const { status, scheduledDate, data, assignee, reminderNotes } = req.body;
 
-  console.log("PUT /api/content/:contentId - Request body:", req.body);
-
   if (status && !['Draft', 'Published', 'Scheduled', 'Archived'].includes(status)) {
     return res.status(400).json({ error: 'Invalid status' });
   }
 
   try {
     const content = await Content.findById(contentId);
-    if (!content) {
-      return res.status(404).json({ error: 'Content not found' });
-    }
+    if (!content) return res.status(404).json({ error: 'Content not found' });
 
     const user = await User.findById(userId).populate('businesses');
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
+    if (!user) return res.status(404).json({ error: 'User not found' });
 
     const isOwner = content.userId.toString() === userId.toString();
     const isBusinessContent = !!content.businessId;
@@ -695,9 +689,7 @@ router.put('/:contentId', ensureAuthenticated, async (req, res) => {
 
     if (isBusinessContent) {
       const business = await Business.findById(content.businessId);
-      if (!business) {
-        return res.status(404).json({ error: 'Business not found' });
-      }
+      if (!business) return res.status(404).json({ error: 'Business not found' });
 
       isBusinessMember =
         business.owner.toString() === userId.toString() ||
@@ -707,23 +699,35 @@ router.put('/:contentId', ensureAuthenticated, async (req, res) => {
         return res.status(403).json({ error: 'You do not have access to this business content' });
       }
 
-      // Assignee validation should only happen if the content has a business
+      // Validate and update multiple assignees
       if (assignee) {
-        const isValidAssignee =
-          business.owner.toString() === assignee ||
-          business.members.some(m => m.user.toString() === assignee);
-
-        if (!isValidAssignee) {
-          return res.status(400).json({ error: 'Assignee must be a member of the business' });
+        const assignees = Array.isArray(assignee) ? assignee : [assignee];
+        const validAssignees = assignees.every(id =>
+          business.owner.toString() === id ||
+          business.members.some(m => m.user.toString() === id)
+        );
+        if (!validAssignees) {
+          return res.status(400).json({ error: 'All assignees must be members of the business' });
         }
+        const previousAssignees = content.assignee || [];
+        content.assignee = assignees;
 
-        content.assignee = assignee;
+        // Send email notifications to newly assigned users
+        const newAssignees = assignees.filter(id => !previousAssignees.includes(id));
+        if (newAssignees.length > 0) {
+          const usersToNotify = await User.find({ _id: { $in: newAssignees } });
+          for (const assigneeUser of usersToNotify) {
+            const subject = `Assigned to Content: ${content.data.title || content.data.caption || 'Untitled'}`;
+            const plainText = `Hello ${assigneeUser.name},\n\nYou have been assigned to "${content.data.title || content.data.caption || 'Untitled'}" by ${user.name}.\n\nLog in to view details.\n\nBest regards,\nTeam`;
+            const html = `<p>Hello ${assigneeUser.name},</p><p>You have been assigned to "<strong>${content.data.title || content.data.caption || 'Untitled'}</strong>" by <strong>${user.name}</strong>.</p><p><a href="${process.env.FRONTEND_URL}/content/${contentId}">View Content</a></p><p>Best regards,<br>Team</p>`;
+            await sendEmail(assigneeUser.email, subject, plainText, html);
+          }
+        }
       }
     } else if (!isOwner) {
       return res.status(403).json({ error: 'You do not have access to this personal content' });
     }
 
-    // Update other fields
     if (status) content.status = status;
     if (scheduledDate) content.scheduledDate = new Date(scheduledDate);
     if (data) content.data = { ...content.data, ...data };

@@ -16,11 +16,11 @@ const ContentSchema = new mongoose.Schema({
     ref: 'User',
     required: true,
   },
-  assignee: {
+  assignee: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: false, 
-  },
+    required: false,
+  }],
   reminderNotes: {
     type: String,
     required: false, 
