@@ -53,6 +53,7 @@ const authRoute = require("./routes/auth");
 const billingRoutes = require("./routes/billing");
 const imageRoutes = require("./routes/imageRoutes");
 const adminRoutes = require("./routes/admin");
+const socialRoutes = require("./routes/socialAuth");
 
 require("./config/passport"); // Initialize Passport
 
@@ -308,6 +309,7 @@ app.use("/api/user", userRoutes);
 app.use("/api/billing", billingRoutes);
 app.use("/api/images", imageRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/user/social-accounts", socialRoutes);
 
 app.use("*", (req, res) => {
   const message = `404 Not Found: ${req.method} ${req.originalUrl}`;
